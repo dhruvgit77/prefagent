@@ -1,0 +1,82 @@
+# Layer B: LoRA + DPO training. One set of hyperparameters for EVERY condition —
+# the preference data is the only thing that varies between runs.
+#
+# How the free values (learning_rate, beta) get fixed: a one-off pilot sweep on the
+# dev split, run on BOTH the human-data and the full-agent-pipeline datasets; we pick
+# the setting with the best average dev reward accuracy and freeze it. Tuning on only
+# one condition would quietly favour that condition.
+
+model:
+  name: Qwen/Qwen2.5-1.5B-Instruct   # overridden per run by experiments.yaml
+  # 4-bit (QLoRA) for every model, including the small ones that would fit in 16-bit.
+  # Quantisation then stays constant across model sizes instead of becoming a
+  # hidden variable in the "does scale help" comparison.
+  load_in_4bit: true
+  max_seq_length: 1024
+  # Prompts and answers are formatted with the model's own chat template, the same
+  # way the model sees them at inference time.
+  use_chat_template: true
+
+lora:
+  r: 16                     # rank. 8–16 is typical for DPO on small data; 16 gives
+                            # headroom for the 3B models without much extra memory.
+  alpha: 32                 # alpha/r = 2 is the common LoRA scaling convention
+  # 0.0 instead of the TRD's 0.05: Unsloth's fast kernels need dropout 0, and with
+  # ~80 runs the ~2x speedup matters. Over-fitting in DPO is controlled by beta and
+  # the epoch count, not LoRA dropout.
+  dropout: 0.0
+  # All linear layers (attention + MLP). The QLoRA paper found that adapting only
+  # attention underperforms; all layers is needed to match full fine-tuning.
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  bias: none
+  use_rslora: false
+  # Unsloth's checkpointing trades compute for memory so batch 2 × 1024 tokens × 4
+  # sequences (policy + reference, chosen + rejected) fits on a 16 GB T4.
+  gradient_checkpointing: unsloth
+
+dpo:
+  # KL-penalty strength: how far the policy may move from the reference model.
+  # 0.1 is the value used in the DPO paper and most follow-ups. Pilot sweep: {0.05, 0.1, 0.3}.
+  beta: 0.1
+  loss_type: sigmoid        # standard DPO loss (Rafailov et al. 2023)
+  # 0 = trust labels fully. Disagreement-aware DPO (our method) replaces this
+  # constant with a per-pair value derived from judge agreement.
+  label_smoothing: 0.0
+  max_prompt_length: 512
+  max_completion_length: 512
+  max_length: 1024          # prompt + completion; data.yaml keeps prompts ≤ 256 tokens
+  # With PEFT, no separate reference model is loaded: TRL uses the base model with
+  # the adapter disabled as the reference. This is why DPO fits on one T4.
+  ref_model: null
+
+training:
+  num_train_epochs: 2       # DPO over-fits small data after ~2–3 epochs (it pushes
+                            # rejected log-probs down without bound); 2 is fixed after the pilot.
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 8   # effective batch 16 — stable gradients at T4 memory
+  # 5e-6 follows the Hugging Face alignment-handbook QLoRA DPO recipe; LoRA needs a
+  # higher LR than full fine-tuning DPO (~5e-7). Pilot sweep: {5e-6, 1e-5, 2e-5}.
+  learning_rate: 5.0e-6
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  optim: adamw_8bit         # 8-bit optimiser states: ~75% less optimiser memory
+  # T4 has no bf16 support, so this resolves to fp16 there; bf16 on Ampere+ GPUs.
+  precision: auto
+
+checkpointing:
+  # Free Colab sessions can drop without warning. 1000 pairs / 16 ≈ 63 steps per
+  # epoch, so saving every 25 steps loses at most ~10 minutes of work.
+  save_steps: 25
+  save_total_limit: 2       # adapters only (tens of MB each), never merged weights
+  resume_if_possible: true
+
+diagnostics:
+  # DPO training health, logged every few steps:
+  #   rewards/margins  — should rise steadily; a jump then collapse signals LR too high
+  #   rewards/accuracies — share of pairs where chosen outscores rejected
+  #   logps/chosen     — should NOT fall sharply; if it does, the model is
+  #                      "unlearning" good answers (a known DPO failure mode)
+  logging_steps: 5
+  eval_steps: 25            # evaluates on the dev split

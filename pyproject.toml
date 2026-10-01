@@ -1,0 +1,9 @@
+[project]
+name = "prefagent"
+version = "0.1.0"
+description = "Multi-agent AI feedback for DPO fine-tuning of small language models"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

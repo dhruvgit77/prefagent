@@ -1,0 +1,48 @@
+# Seed-prompt sources, filtering and splits.
+# Every split below is drawn ONCE with seeds.data and saved to disk; all
+# conditions then reuse the same files.
+
+policy_tokenizer: Qwen/Qwen2.5-1.5B-Instruct   # lengths are measured in the policy's tokens
+
+hh_rlhf:
+  dataset: Anthropic/hh-rlhf
+  # HH-RLHF mixes two very different tasks. We sample both, stratified 50/50,
+  # and report results per subset (helpfulness vs harmlessness).
+  subsets: [helpful-base, harmless-base]
+  stratify: true
+  # PRD puts multi-turn dialogue out of scope, and DPO on a single prompt/response
+  # is cleaner to analyse. Keep only conversations with exactly one Human turn.
+  single_turn_only: true
+  # Prompts must fit comfortably inside train_dpo.max_prompt_length (512) with
+  # room for the chat template, so we drop anything longer than this.
+  max_prompt_tokens: 256
+  min_prompt_tokens: 4      # drops empty / "hi" style prompts
+
+gsm8k:
+  # Verifiable domain: a candidate's final answer can be checked against the gold
+  # answer, so label accuracy is measured objectively instead of by another judge.
+  enabled: true
+  dataset: openai/gsm8k
+  config: main
+
+splits:
+  # Largest training pool we will use (the scaling curve goes 250 → 2000 pairs).
+  train_prompts: 2000
+  # Small preference set for the one-off hyperparameter pilot and in-training
+  # eval loss. Never used for any reported result.
+  dev_pairs: 200
+  # Held-out HH-RLHF pairs WITH human labels. The agent pipeline labels these too,
+  # and agreement with the human choice is the label-accuracy metric (RQ1).
+  # n=500 gives a 95% CI of about ±4.4 points on an accuracy near 50–80%.
+  label_agreement_pairs: 500
+  # Held-out prompts for the win-rate evaluation. Same size and CI reasoning.
+  eval_prompts: 500
+  # GSM8K: problems for measuring label accuracy on verifiable answers.
+  gsm8k_label_problems: 500
+
+decontamination:
+  # Training prompts must not leak into evaluation. Exact duplicates are removed
+  # after normalisation; near-duplicates are removed by embedding similarity.
+  normalize: true           # lowercase, collapse whitespace, strip punctuation
+  near_dup_cosine: 0.90
+  embedder: sentence-transformers/all-MiniLM-L6-v2

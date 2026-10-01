@@ -1,0 +1,20 @@
+# GPU (Colab / Kaggle T4) environment: DPO training, generation, benchmarks, reward model.
+# Unsloth is installed first and pins mutually compatible torch / transformers / trl / peft,
+# so those are intentionally NOT listed here. After the first successful run, record the
+# exact environment for the paper:
+#   pip freeze > requirements-train.lock.txt
+
+unsloth               # 4-bit QLoRA + patched DPOTrainer, ~2x faster on T4
+pyyaml>=6.0
+pydantic>=2.6
+python-dotenv>=1.0
+numpy
+pandas
+scipy
+statsmodels
+lm-eval>=0.4.5        # EleutherAI harness: IFEval, TruthfulQA, MMLU, GSM8K with standard scoring
+sentence-transformers # features for the auxiliary reward model
+scikit-learn
+shap
+openai>=1.40          # judge calls for win-rate evaluation
+tenacity>=8.2

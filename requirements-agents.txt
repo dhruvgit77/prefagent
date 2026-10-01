@@ -1,0 +1,19 @@
+# Local (CPU) environment: prompt preparation, agent debate, labelling, statistics.
+# Deliberately excludes torch/bitsandbytes/unsloth — those need CUDA and live in
+# requirements-train.txt. After installing, freeze exact versions for the paper:
+#   pip freeze > requirements-agents.lock.txt
+
+openai>=1.40          # one OpenAI-compatible client for Groq, Gemini, Mistral, Cohere, Ollama
+pyyaml>=6.0           # configs/*.yaml
+pydantic>=2.6         # validates judge JSON and dataset rows
+tenacity>=8.2         # retries with exponential backoff on rate limits
+python-dotenv>=1.0    # loads API keys from .env
+datasets>=3.0         # HH-RLHF, GSM8K, TruthfulQA from the Hugging Face Hub
+transformers>=4.45    # tokenizer only (to measure prompt length in policy tokens)
+sentence-transformers>=3.0  # near-duplicate decontamination (CPU is fine for a few thousand prompts)
+numpy>=1.26
+pandas>=2.2
+scipy>=1.12           # statistics (bootstrap CIs, tests)
+statsmodels>=0.14     # Holm correction, length-controlled logistic regression
+tqdm>=4.66
+pytest>=8.0

@@ -1,0 +1,125 @@
+# Layer A: the agent pipeline that turns a prompt into a (chosen, rejected) pair.
+# It never touches model weights — it only calls LLM APIs.
+#
+# Model IDs below are examples: free-tier catalogues change often, so check each
+# provider's model list and edit the IDs. Keep the `family` fields accurate —
+# the code uses them to enforce the judge-independence rule (see eval.yaml).
+
+providers:
+  # All five expose an OpenAI-compatible Chat Completions endpoint, so a single
+  # client handles all of them; only base_url and the key change.
+  groq:
+    base_url: https://api.groq.com/openai/v1
+    api_key_env: GROQ_API_KEY
+    rpm: 30                 # requests/minute we allow ourselves; set ≤ your console limit
+  gemini:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+    api_key_env: GEMINI_API_KEY
+    rpm: 10
+  mistral:
+    base_url: https://api.mistral.ai/v1
+    api_key_env: MISTRAL_API_KEY
+    rpm: 20
+  cohere:
+    base_url: https://api.cohere.ai/compatibility/v1
+    api_key_env: COHERE_API_KEY
+    rpm: 10
+  ollama:
+    # Local fallback: no key, no rate limit, but slow on a laptop CPU.
+    base_url: http://localhost:11434/v1
+    api_key_env: null
+    rpm: 1000
+
+llms:
+  # name -> provider, model id, family. The family matters, not the size.
+  llama70b:   {provider: groq,    id: llama-3.3-70b-versatile,       family: llama}
+  # gpt-oss is a reasoning model: hidden reasoning tokens count against max_tokens.
+  # "low" effort keeps judge calls fast and stops reasoning from eating the JSON budget.
+  gptoss120b: {provider: groq,    id: openai/gpt-oss-120b,           family: gpt-oss,
+               extra: {reasoning_effort: low}}
+  kimi_k2:    {provider: groq,    id: moonshotai/kimi-k2-instruct,   family: kimi}
+  gemini:     {provider: gemini,  id: gemini-2.5-flash,              family: gemini}
+  mistral:    {provider: mistral, id: mistral-small-latest,          family: mistral}
+  command:    {provider: cohere,  id: command-a-03-2025,             family: cohere}
+
+# ---------------------------------------------------------------------------
+# Candidate generation (factor 1 of the 2×2: DIVERSITY)
+# ---------------------------------------------------------------------------
+generation:
+  model: llama70b
+  # Four candidates per prompt in BOTH levels of the factor, so the only thing
+  # that differs is where the diversity comes from (personas vs sampling noise).
+  n_candidates: 4
+  # Same temperature for both levels, for the same reason. 0.8 gives varied but
+  # coherent answers; at 1.0+ a 70B model starts producing noticeably worse text,
+  # which would make "rejected" trivially bad and the pairs uninformative.
+  temperature: 0.8
+  top_p: 0.95
+  # Keeps responses within train_dpo.max_completion_length (512 policy tokens)
+  # after re-tokenisation, so DPO never silently truncates a chosen/rejected answer.
+  max_tokens: 450
+
+  single_persona:
+    - "You are a helpful assistant. Answer the user's request."
+  multi_persona:
+    - "You are a helpful assistant. Answer directly and concisely."
+    - "You are a helpful assistant. Answer thoroughly, reasoning step by step."
+    - "You are a helpful assistant and a domain expert. Prioritise technical precision."
+    - "You are a helpful assistant and a careful sceptic. Flag any uncertainty explicitly."
+  # Every persona starts with the same helpful-assistant line so personas vary style
+  # and depth, not willingness to help — otherwise "pick the helpful one" is trivial.
+
+# ---------------------------------------------------------------------------
+# Judging (factor 2 of the 2×2: DELIBERATION) — compute-matched at 6 calls/prompt
+# ---------------------------------------------------------------------------
+judging:
+  rubric:
+    criteria: [helpfulness, correctness, harmlessness]
+    scale: [1, 5]
+    # Stated to counter the well-known verbosity bias of LLM judges. We still
+    # MEASURE length bias afterwards; this just avoids encouraging it.
+    instructions: >-
+      Judge substance, not length or style. A shorter answer that fully solves the
+      request is better than a longer one that pads. Refusing a harmless request is
+      unhelpful; complying with a harmful one is harmful.
+  # Candidates are shown in a fresh random order on every call (the permutation is
+  # logged) so position bias averages out instead of favouring candidate #1.
+  shuffle_candidates: true
+  temperature: 0.7          # >0 so repeated single-judge samples actually differ
+  max_tokens: 800
+  response_format: json     # the verdict is validated with pydantic; retried on failure
+  max_parse_retries: 3
+
+  single_judge:
+    model: gptoss120b
+    # Self-consistency: 6 independent samples, majority vote on best/worst.
+    # 6 = the panel's call count, so any panel gain is not just "more compute".
+    samples: 6
+
+  panel:
+    judges: [gptoss120b, kimi_k2, llama70b]
+    # Round 1: each judge scores independently. Round 2: each judge sees the others'
+    # round-1 verdicts and rationales and may revise (Du et al. 2023 style debate).
+    # 3 judges × 2 rounds = 6 calls — matched to single_judge.samples.
+    rounds: 2
+    aggregate: mean_score   # best = highest mean final score; worst = lowest
+    # Optional ablation from the original design: in round 2 one judge is told to
+    # argue against the current majority. Its output is a CRITIQUE shown to the
+    # others — it is never added to the candidate list.
+    devils_advocate: false
+
+  # Stored per pair and used by disagreement-aware DPO: the fraction of final
+  # judge verdicts that agree on the chosen-over-rejected ordering (1/3 … 1).
+  record_agreement: true
+
+cache:
+  # Every request is hashed (model, messages, params, sample index) and its response
+  # stored. Re-running never re-spends free-tier quota, and the exact raw outputs
+  # behind the paper's dataset are preserved.
+  enabled: true
+  backend: sqlite
+
+retry:
+  max_attempts: 6
+  initial_wait_s: 2
+  max_wait_s: 60            # exponential backoff with jitter on 429 / 5xx

@@ -1,0 +1,50 @@
+# The experiment matrix. Each condition says where the candidates come from, who picks
+# chosen/rejected, and which DPO loss is used. Everything else is held constant.
+
+conditions:
+  # --- references and sanity baselines ---
+  base:            {train: false}   # untuned model: the zero point for every metric
+  human:           {candidates: hh_rlhf,        labels: human}   # the gold-standard reference
+  random:          {candidates: multi_persona,  labels: random}  # floor: DPO on coin-flip labels
+  # Picks the longer answer. If this does as well as the agents, the "agent signal" is
+  # mostly a length preference — something we need to know before reviewers point it out.
+  length:          {candidates: multi_persona,  labels: longer}
+
+  # --- the 2×2 factorial (RQ2): diversity × deliberation, 6 judge calls each ---
+  single_single:   {candidates: single_persona, labels: single_judge}  # plain RLAIF
+  single_panel:    {candidates: single_persona, labels: panel}         # deliberation only
+  multi_single:    {candidates: multi_persona,  labels: single_judge}  # diversity only
+  multi_panel:     {candidates: multi_persona,  labels: panel}         # full pipeline
+
+  # --- method (RQ4) ---
+  multi_panel_da:  {candidates: multi_persona,  labels: panel, dpo: disagreement_aware}
+
+  # --- on-policy variant: candidates sampled from the policy itself, panel judges ---
+  # Preference data from the model's own distribution usually trains better than
+  # answers written by a much larger model (Tajwar et al. 2024).
+  onpolicy_panel:  {candidates: policy_samples, labels: panel}
+
+policies:
+  # Primary model: every condition.
+  primary: Qwen/Qwen2.5-1.5B-Instruct
+  # Generalisation set: different families and sizes, all permissively licensed
+  # (Apache-2.0 / MIT) per the TRD's license rule. Left out for that reason:
+  # Llama-3.2 (Llama license), Gemma (Gemma terms), Qwen2.5-3B (Qwen Research license).
+  generalization:
+    - Qwen/Qwen2.5-0.5B-Instruct       # smaller, same family → size effect   (Apache-2.0)
+    - HuggingFaceTB/SmolLM3-3B         # different family, fully open recipe   (Apache-2.0)
+    - microsoft/Phi-4-mini-instruct    # different family, 3.8B, tight T4 fit  (MIT)
+  # Only the conditions that answer the headline questions are repeated on these models.
+  generalization_conditions: [base, human, single_single, multi_panel, multi_panel_da]
+
+data_sizes:
+  main: 1000                 # pairs per training set in the main grid
+  # Scaling curve: does the agent–human gap shrink or grow with more data?
+  scaling: [250, 500, 1000, 2000]
+  scaling_conditions: [human, multi_panel, multi_panel_da]
+
+# Rough compute budget (T4, ~30–45 min per 1000-pair run on the 1.5B model):
+#   main grid           9 trained conditions × 3 seeds           = 27 runs
+#   generalisation      4 trained conditions × 3 models × 3 seeds = 36 runs
+#   scaling             3 conditions × 3 extra sizes × 3 seeds    = 27 runs
+#   ≈ 90 runs ≈ 60–80 GPU-hours → ~3–4 weeks on Kaggle (30 h/week) + Colab.

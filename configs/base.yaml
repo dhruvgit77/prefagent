@@ -1,0 +1,31 @@
+# Shared settings loaded by every stage. Other configs are merged on top of this one.
+
+project:
+  name: prefagent
+  # Used to namespace Hub repos, output folders and run names.
+  version: v1
+
+paths:
+  data_dir: data            # generated prompt pools and preference datasets
+  output_dir: outputs       # checkpoints, adapters, logs, results tables
+  cache_dir: cache          # on-disk LLM response cache (see agents.yaml -> cache)
+
+seeds:
+  # Seed for data sampling/splitting. Fixed once, so every condition trains and
+  # evaluates on the *same* prompts — the core of a controlled comparison.
+  data: 1234
+  # Training seeds. Each (condition, model) is trained once per seed and we report
+  # mean ± std / CIs across them. Three is the usual minimum reviewers accept;
+  # the exact values are arbitrary, what matters is that they are fixed and reported.
+  train: [0, 1, 2]
+
+hub:
+  # Optional: push LoRA adapters and datasets to the Hugging Face Hub so a Colab
+  # disconnect never loses work and the paper's artefacts are public.
+  enabled: false
+  namespace: null           # your HF username, e.g. "dhruvsinghal"
+  private: true             # keep private until the paper is submitted
+
+logging:
+  level: INFO
+  report_to: tensorboard    # free and local; switch to "wandb" if you have an account

@@ -1,0 +1,57 @@
+# Evaluation harness. Every trained model — and the untuned base — goes through
+# exactly the same steps with exactly the same prompts.
+
+generation:
+  # Greedy decoding: deterministic, so differences between models come from the
+  # weights and not from sampling luck.
+  do_sample: false
+  max_new_tokens: 512
+  use_chat_template: true
+  repetition_penalty: 1.0   # no penalty: we measure the model as it is
+
+win_rate:
+  prompts: eval_prompts     # the 500 held-out prompts from data.yaml
+  comparisons:
+    - [dpo, base]           # does DPO improve on the untuned model? (RQ3)
+    - [agent, human]        # head-to-head: agent-label model vs human-label model
+  # JUDGE-INDEPENDENCE RULE (enforced in code): no eval judge may share a family with
+  #   (a) the policy being evaluated (Qwen) — self-preference, or
+  #   (b) any model used to generate or label the training data — the evaluated model
+  #       was trained on that judge's own taste, so it would grade its own homework.
+  jury: [gemini, mistral, command]
+  # Each pair is judged twice with A/B positions swapped. If the two orders disagree
+  # the judge is counted as a tie: this removes position bias instead of averaging it.
+  swap_positions: true
+  temperature: 0.0
+  aggregate: majority       # majority of the 3 jurors; no majority → tie
+  # Length-controlled win-rate (AlpacaEval 2 style): a logistic regression of the
+  # verdict on the length difference, reported at zero length difference. Reported
+  # next to the raw rate so length bias cannot inflate the headline number.
+  length_controlled: true
+
+judge_validation:
+  # How far can the jury be trusted? Run it on the 500 held-out HH-RLHF pairs and
+  # report agreement with the human label. Also reused as the RQ1 label-accuracy set.
+  human_pairs: label_agreement_pairs
+
+benchmarks:
+  # Run with EleutherAI lm-evaluation-harness for standard, comparable scoring.
+  harness: lm-eval
+  tasks:
+    ifeval: {}                     # instruction following, rule-checked — no judge needed
+    truthfulqa_mc2: {}             # truthfulness via log-probs — no judge needed
+    gsm8k: {limit: 500}            # capability retention: did alignment hurt reasoning?
+    mmlu: {limit_per_subject: 20}  # capability retention on knowledge (~1.1k questions)
+  batch_size: auto
+
+statistics:
+  # Paired bootstrap over prompts: every model answers the same prompts, so resampling
+  # prompts (not individual answers) gives honest CIs for differences between models.
+  bootstrap_resamples: 10000
+  confidence: 0.95
+  # Many conditions are compared, so p-values are Holm-corrected to keep the
+  # family-wise false-positive rate at 5%.
+  multiple_comparison: holm
+  # Results are also averaged over the 3 training seeds; the seed-to-seed std is
+  # reported so readers can see how much is training noise.
+  aggregate_over_seeds: true
