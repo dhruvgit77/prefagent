@@ -31,7 +31,11 @@ def deep_merge(base: dict, override: dict) -> dict:
     """Recursively merge `override` into a copy of `base`; override wins on conflicts."""
     out = copy.deepcopy(base)
     for key, value in override.items():
-        if isinstance(value, dict) and isinstance(out.get(key), dict):
+        if isinstance(value, dict) and value.get("_replace"):
+            # `_replace: true` in an overlay replaces the whole section instead of merging
+            # (e.g. the demo profile's smaller set of conditions).
+            out[key] = {k: copy.deepcopy(v) for k, v in value.items() if k != "_replace"}
+        elif isinstance(value, dict) and isinstance(out.get(key), dict):
             out[key] = deep_merge(out[key], value)
         else:
             out[key] = copy.deepcopy(value)
@@ -57,12 +61,15 @@ def load_config(
     names: tuple[str, ...] = DEFAULT_FILES,
     overrides: list[str] | None = None,
     config_dir: Path = CONFIG_DIR,
+    profile: str | None = None,
 ) -> dict[str, Any]:
-    """Merge configs/<name>.yaml in order, then apply overrides and validate.
+    """Merge configs/<name>.yaml in order, then an optional profile overlay
+    (configs/profiles/<profile>.yaml), then CLI overrides, and validate.
 
-    Each file owns distinct top-level sections (e.g. train_dpo.yaml owns `lora`,
-    `dpo`, `training`), so merge order only matters for CLI overrides.
+    Each base file owns distinct top-level sections (e.g. train_dpo.yaml owns `lora`,
+    `dpo`, `training`); profiles and overrides change values on top of them.
     """
+    names = tuple(names) + ((f"profiles/{profile}",) if profile else ())
     cfg: dict[str, Any] = {}
     for name in names:
         with (config_dir / f"{name}.yaml").open() as f:
@@ -102,10 +109,15 @@ def validate(cfg: dict) -> None:
         if len(gen["multi_persona"]) != gen["n_candidates"]:
             raise ValueError("multi_persona must list exactly n_candidates personas")
 
-    if "dpo" in cfg:
-        dpo = cfg["dpo"]
-        if dpo["max_prompt_length"] + dpo["max_completion_length"] > dpo["max_length"]:
-            raise ValueError("max_prompt_length + max_completion_length exceeds max_length")
+    if {"dpo", "generation", "hh_rlhf"} <= cfg.keys():
+        # Longest possible pair must fit max_length, or DPO silently truncates answers.
+        # Generator tokens ≠ policy tokens, so allow 30% tokenizer mismatch plus 64 tokens
+        # of chat-template overhead.
+        worst = (cfg["hh_rlhf"]["max_prompt_tokens"]
+                 + int(1.3 * cfg["generation"]["max_tokens"]) + 64)
+        if worst > cfg["dpo"]["max_length"]:
+            raise ValueError(f"Longest prompt+answer (~{worst} tokens) exceeds "
+                             f"dpo.max_length={cfg['dpo']['max_length']}")
 
     if {"win_rate", "judging", "generation", "policies"} <= cfg.keys():
         check_judge_independence(cfg)

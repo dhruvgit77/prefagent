@@ -35,9 +35,10 @@ def generate(client: LLMClient | None, cfg: dict, rec: dict, source: str) -> dic
     else:
         raise ValueError(f"unknown source {source!r}")
 
+    suffix = f" {g['length_instruction']}" if g.get("length_instruction") else ""
     reqs = [ChatRequest(model=g["model"], temperature=g["temperature"], top_p=g["top_p"],
                         max_tokens=g["max_tokens"], sample_idx=k,
-                        messages=[{"role": "system", "content": persona},
+                        messages=[{"role": "system", "content": persona + suffix},
                                   {"role": "user", "content": rec["prompt"]}],
                         tag=f"gen:{source}:{rec['id']}")
             for persona, k in plan]

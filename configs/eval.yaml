@@ -1,7 +1,7 @@
 # Evaluation harness. Every trained model — and the untuned base — goes through
 # exactly the same steps with exactly the same prompts.
 
-generation:
+eval_generation:
   # Greedy decoding: deterministic, so differences between models come from the
   # weights and not from sampling luck.
   do_sample: false
@@ -18,12 +18,13 @@ win_rate:
   #   (a) the policy being evaluated (Qwen) — self-preference, or
   #   (b) any model used to generate or label the training data — the evaluated model
   #       was trained on that judge's own taste, so it would grade its own homework.
-  jury: [gemini, mistral, command]
+  # Two independent families available (Gemini, Cohere); add mistral for a third juror.
+  jury: [gemini_flash, command]
   # Each pair is judged twice with A/B positions swapped. If the two orders disagree
   # the judge is counted as a tie: this removes position bias instead of averaging it.
   swap_positions: true
   temperature: 0.0
-  aggregate: majority       # majority of the 3 jurors; no majority → tie
+  aggregate: majority       # strict majority of jurors (with 2: both must agree); else tie
   # Length-controlled win-rate (AlpacaEval 2 style): a logistic regression of the
   # verdict on the length difference, reported at zero length difference. Reported
   # next to the raw rate so length bias cannot inflate the headline number.

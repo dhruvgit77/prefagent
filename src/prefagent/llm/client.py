@@ -11,6 +11,7 @@ import logging
 import os
 import threading
 import time
+from collections import deque
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -86,9 +87,49 @@ class RateLimiter:
             time.sleep(start - now)
 
 
+class TokenLimiter:
+    """Keeps a model's tokens over any rolling 60 s under `tpm` (thread-safe).
+
+    Free tiers like Groq's cap tokens per minute (8k), and one judge call is ~2–3k tokens,
+    so request spacing alone still triggers 429s. Each call reserves an estimate before it
+    runs; the reservation is replaced by the real usage when the response arrives.
+    """
+
+    def __init__(self, tpm: int, headroom: float = 0.9):
+        self._budget = tpm * headroom
+        self._window: deque[list] = deque()      # [timestamp, tokens]
+        self._lock = threading.Lock()
+
+    def acquire(self, estimate: int) -> list:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                while self._window and now - self._window[0][0] >= 60:
+                    self._window.popleft()
+                used = sum(t for _, t in self._window)
+                # A single oversized request may proceed once the window is empty.
+                if used + estimate <= self._budget or not self._window:
+                    entry = [now, estimate]
+                    self._window.append(entry)
+                    return entry
+                wait = 60 - (now - self._window[0][0]) + 0.05
+            time.sleep(wait)
+
+    def settle(self, entry: list, actual: int | None) -> None:
+        if actual is not None:
+            with self._lock:
+                entry[1] = actual
+
+
+def estimate_tokens(messages: list[dict], max_tokens: int) -> int:
+    """~3.5 characters per token for English, plus half the output budget."""
+    chars = sum(len(m["content"]) for m in messages)
+    return int(chars / 3.5) + max_tokens // 2
+
+
 class LLMClient:
     def __init__(self, cfg: dict):
-        load_dotenv()
+        load_dotenv(Path(__file__).resolve().parents[3] / ".env")
         self._llms = cfg["llms"]
         self._providers = cfg["providers"]
         retry_cfg = cfg["retry"]
@@ -100,7 +141,13 @@ class LLMClient:
             reraise=True,
         )
         self._clients: dict[str, openai.OpenAI] = {}
-        self._limiters = {name: RateLimiter(p["rpm"]) for name, p in self._providers.items()}
+        # Free-tier limits apply per model, so each model gets its own limiters.
+        self._limiters = {name: RateLimiter(self._providers[spec["provider"]]["rpm"])
+                          for name, spec in self._llms.items()}
+        self._token_limiters = {name: TokenLimiter(spec["tpm"])
+                                for name, spec in self._llms.items() if spec.get("tpm")}
+        self._output_limiters = {name: TokenLimiter(spec["otpm"])
+                                 for name, spec in self._llms.items() if spec.get("otpm")}
         self._no_json_mode: set[str] = set()   # providers that rejected response_format
         cache_cfg = cfg["cache"]
         self.cache = (ResponseCache(Path(cfg["paths"]["cache_dir"]) / "llm_cache.sqlite")
@@ -125,7 +172,7 @@ class LLMClient:
                                 finish_reason=hit.get("finish_reason"),
                                 usage=hit.get("usage") or {})
 
-        raw = self._call_with_retry(spec["provider"], payload)
+        raw = self._call_with_retry(req.model, spec["provider"], payload)
         choice = raw.choices[0]
         text = choice.message.content or ""
         if choice.finish_reason == "length":
@@ -174,12 +221,24 @@ class LLMClient:
                 base_url=p["base_url"], api_key=api_key, max_retries=0, timeout=120)
         return self._clients[provider]
 
-    def _call_with_retry(self, provider: str, payload: dict):
+    def _call_with_retry(self, model: str, provider: str, payload: dict):
+        tokens = self._token_limiters.get(model)
+        out_tokens = self._output_limiters.get(model)
+
         @retry(**self._retry_kwargs)
         def _call():
-            self._limiters[provider].wait()
+            self._limiters[model].wait()
+            entry = tokens.acquire(estimate_tokens(payload["messages"],
+                                                   payload["max_tokens"])) if tokens else None
+            out_entry = out_tokens.acquire(payload["max_tokens"] // 2) if out_tokens else None
             try:
-                return self._client(provider).chat.completions.create(**payload)
+                raw = self._client(provider).chat.completions.create(**payload)
+                usage = raw.usage
+                if entry is not None:
+                    tokens.settle(entry, usage.total_tokens if usage else None)
+                if out_entry is not None:
+                    out_tokens.settle(out_entry, usage.completion_tokens if usage else None)
+                return raw
             except openai.BadRequestError as e:
                 # Some OpenAI-compatible endpoints don't support JSON mode. Drop it once
                 # for that provider and rely on the tolerant parser instead.

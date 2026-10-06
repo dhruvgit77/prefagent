@@ -14,7 +14,7 @@ def test_default_config_is_valid():
 
 def test_juror_sharing_family_with_label_judges_is_rejected():
     with pytest.raises(ValueError, match="share a family"):
-        load_config(overrides=["win_rate.jury=[gemini,kimi_k2,command]"])
+        load_config(overrides=["win_rate.jury=[gemini_flash,gptoss20b,command]"])
 
 
 def test_judging_must_be_compute_matched():
@@ -45,3 +45,30 @@ def test_rate_limiter_spaces_requests():
     for _ in range(4):
         limiter.wait()
     assert time.monotonic() - start >= 0.14  # 3 gaps × 50 ms, with slack
+
+
+def test_token_limiter_blocks_when_window_full(monkeypatch):
+    from prefagent.llm import client as c
+    clock = {"t": 0.0}
+    monkeypatch.setattr(c.time, "monotonic", lambda: clock["t"])
+    slept = []
+    monkeypatch.setattr(c.time, "sleep", lambda s: (slept.append(s), clock.update(t=clock["t"] + s)))
+    lim = c.TokenLimiter(tpm=1000, headroom=1.0)
+    e = lim.acquire(600)
+    lim.settle(e, 700)                 # real usage replaces the estimate
+    lim.acquire(300)                   # 700 + 300 = 1000: fits
+    assert not slept
+    lim.acquire(100)                   # would exceed → waits for the window to roll over
+    assert slept and slept[0] > 59
+
+
+def test_config_files_do_not_share_top_level_keys():
+    """Files are deep-merged, so a shared top-level key silently mixes two sections
+    (this happened twice: `models`, then `generation`)."""
+    import yaml
+    from prefagent.config import CONFIG_DIR, DEFAULT_FILES
+    seen = {}
+    for name in DEFAULT_FILES:
+        for key in yaml.safe_load((CONFIG_DIR / f"{name}.yaml").read_text()):
+            assert key not in seen, f"'{key}' defined in both {seen[key]} and {name}"
+            seen[key] = name

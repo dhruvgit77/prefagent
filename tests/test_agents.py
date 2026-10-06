@@ -137,7 +137,8 @@ def test_multi_persona_uses_each_persona_once(cfg):
     client = FakeClient()
     out = generate(client, cfg, {"id": "p", "prompt": "q"}, "multi_persona")
     systems = [c.messages[0]["content"] for c in client.calls]
-    assert systems == cfg["generation"]["multi_persona"]
+    suffix = " " + cfg["generation"]["length_instruction"]
+    assert systems == [p + suffix for p in cfg["generation"]["multi_persona"]]
     assert len(out["candidates"]) == 4
 
 
@@ -210,4 +211,4 @@ def test_budget_counts_compute_matched_calls(cfg):
             for m in (None, "single_judge", "panel")]
     b = pipeline.budget(cfg, plan)
     assert b["gptoss120b"]["calls"] == 10 * 6 + 10 * 2        # single judge + panel seat
-    assert b["llama70b"]["calls"] == 10 * 4 + 10 * 2          # generation + panel seat
+    assert b["gptoss20b"]["calls"] == 10 * 4 + 10 * 2         # generation + panel seat

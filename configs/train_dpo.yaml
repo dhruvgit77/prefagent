@@ -8,11 +8,14 @@
 
 model:
   name: Qwen/Qwen2.5-1.5B-Instruct   # overridden per run by experiments.yaml
+  # auto: Unsloth 4-bit on a CUDA GPU when installed; otherwise plain PEFT LoRA in full
+  # precision (Apple MPS / CPU), where bitsandbytes 4-bit is unavailable.
+  backend: auto
   # 4-bit (QLoRA) for every model, including the small ones that would fit in 16-bit.
   # Quantisation then stays constant across model sizes instead of becoming a
   # hidden variable in the "does scale help" comparison.
   load_in_4bit: true
-  max_seq_length: 1024
+  max_seq_length: 1536      # = dpo.max_length
   # Prompts and answers are formatted with the model's own chat template, the same
   # way the model sees them at inference time.
   use_chat_template: true
@@ -42,9 +45,12 @@ dpo:
   # 0 = trust labels fully. Disagreement-aware DPO (our method) replaces this
   # constant with a per-pair value derived from judge agreement.
   label_smoothing: 0.0
-  max_prompt_length: 512
-  max_completion_length: 512
-  max_length: 1024          # prompt + completion; data.yaml keeps prompts ≤ 256 tokens
+  # Prompt + completion, in policy tokens. TRL ≥1.0 has a single length limit (the
+  # separate prompt/completion limits were removed). data.yaml caps prompts at 256 tokens
+  # and agents.yaml caps answers at 450 generator tokens, so pairs fit without truncation;
+  # config.py checks this budget at load time.
+  max_length: 1536
+  truncation_mode: keep_start   # if anything ever is too long, cut the end, never the prompt
   # With PEFT, no separate reference model is loaded: TRL uses the base model with
   # the adapter disabled as the reference. This is why DPO fits on one T4.
   ref_model: null
@@ -61,7 +67,8 @@ training:
   warmup_ratio: 0.1
   weight_decay: 0.0
   max_grad_norm: 1.0
-  optim: adamw_8bit         # 8-bit optimiser states: ~75% less optimiser memory
+  optim: adamw_8bit         # 8-bit optimiser states: ~75% less optimiser memory (CUDA only;
+                            # on Apple/CPU the trainer falls back to adamw_torch)
   # T4 has no bf16 support, so this resolves to fp16 there; bf16 on Ampere+ GPUs.
   precision: auto
 

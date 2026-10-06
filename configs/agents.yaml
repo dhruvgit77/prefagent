@@ -23,7 +23,7 @@ providers:
   cohere:
     base_url: https://api.cohere.ai/compatibility/v1
     api_key_env: COHERE_API_KEY
-    rpm: 10
+    rpm: 18                 # trial limit is 20/minute
   ollama:
     # Local fallback: no key, no rate limit, but slow on a laptop CPU.
     base_url: http://localhost:11434/v1
@@ -31,24 +31,36 @@ providers:
     rpm: 1000
 
 llms:
-  # name -> provider, model id, family. The family matters, not the size.
-  # rpd = requests/day the free tier allows for that model (check your console);
-  # used only by `02_label.py budget` to estimate how many days a stage takes.
-  llama70b:   {provider: groq,    id: llama-3.3-70b-versatile,       family: llama, rpd: 1000}
-  # gpt-oss is a reasoning model: hidden reasoning tokens count against max_tokens.
-  # "low" effort keeps judge calls fast and stops reasoning from eating the JSON budget.
-  gptoss120b: {provider: groq,    id: openai/gpt-oss-120b,           family: gpt-oss,
-               extra: {reasoning_effort: low}, rpd: 1000}
-  kimi_k2:    {provider: groq,    id: moonshotai/kimi-k2-instruct,   family: kimi, rpd: 1000}
-  gemini:     {provider: gemini,  id: gemini-2.5-flash,              family: gemini, rpd: 250}
-  mistral:    {provider: mistral, id: mistral-small-latest,          family: mistral, rpd: 1000}
-  command:    {provider: cohere,  id: command-a-03-2025,             family: cohere, rpd: 1000}
+  # name -> provider, model id, family, and the model's free-tier limits.
+  # Checked against the live Groq / Gemini catalogues on 2026-10-07 (Groq returns its limits
+  # in x-ratelimit-* response headers). Catalogues change: re-check before a long run.
+  #   rpd = requests/day (used by `02_label.py budget`), tpm = tokens/minute (the client
+  #   paces itself to stay under it — at 8k TPM, tokens, not requests, are the bottleneck).
+  # gpt-oss are reasoning models: hidden reasoning tokens count against max_tokens, so
+  # "low" effort keeps judge calls fast and leaves room for the JSON verdict.
+  gptoss120b:   {provider: groq,   id: openai/gpt-oss-120b,    family: gpt-oss,
+                 extra: {reasoning_effort: low},  rpd: 1000, tpm: 8000}
+  gptoss20b:    {provider: groq,   id: openai/gpt-oss-20b,     family: gpt-oss,
+                 extra: {reasoning_effort: low},  rpd: 1000, tpm: 8000}
+  # Thinking disabled: we want the assistant's answer, not a reasoning trace.
+  # Also capped at 1,000 OUTPUT tokens/minute (otpm), found via a live 429 on 2026-10-07.
+  qwen3_27b:    {provider: groq,   id: qwen/qwen3.8-27b,       family: qwen,
+                 extra: {reasoning_effort: none}, rpd: 1000, tpm: 8000, otpm: 1000}
+  gemini_flash: {provider: gemini, id: gemini-3.5-flash,       family: gemini, rpd: 250}
+  gemini_lite:  {provider: gemini, id: gemini-3.5-flash-lite,  family: gemini, rpd: 1000}
+  # Cohere trial keys: 1,000 calls per MONTH and 20/minute (x-endpoint-monthly-call-limit).
+  command:      {provider: cohere,  id: command-a-03-2025,     family: cohere,  rpd: 1000}
+  # No key yet; kept so Mistral can be added as a third juror later.
+  mistral:      {provider: mistral, id: mistral-small-latest,  family: mistral, rpd: 1000}
 
 # ---------------------------------------------------------------------------
 # Candidate generation (factor 1 of the 2×2: DIVERSITY)
 # ---------------------------------------------------------------------------
 generation:
-  model: llama70b
+  # gpt-oss-20b, not qwen3: Qwen's 1k output-tokens/minute cap makes it ~5× slower to
+  # generate with. gpt-oss-20b also sits on the panel; within a pair that is neutral,
+  # since every candidate it judges comes from it.
+  model: gptoss20b
   # Four candidates per prompt in BOTH levels of the factor, so the only thing
   # that differs is where the diversity comes from (personas vs sampling noise).
   n_candidates: 4
@@ -57,9 +69,14 @@ generation:
   # which would make "rejected" trivially bad and the pairs uninformative.
   temperature: 0.8
   top_p: 0.95
-  # Keeps responses within train_dpo.max_completion_length (512 policy tokens)
-  # after re-tokenisation, so DPO never silently truncates a chosen/rejected answer.
-  max_tokens: 450
+  # Room for the generator's hidden reasoning tokens (gpt-oss counts them against this
+  # cap). At 450, 16% of answers were cut off in the first demo attempt, spread across all
+  # personas; answers themselves stay short through length_instruction below.
+  max_tokens: 900
+  # Appended to EVERY persona's system prompt (both factor levels), so length guidance
+  # never differs between conditions. Without it the "step by step" persona overran
+  # max_tokens on 3 of 4 answers in the pilot; truncated answers are unusable as data.
+  length_instruction: "Keep your answer under 200 words."
 
   single_persona:
     - "You are a helpful assistant. Answer the user's request."
@@ -105,7 +122,8 @@ judging:
     samples: 6
 
   panel:
-    judges: [gptoss120b, kimi_k2, llama70b]
+    # Two families (gpt-oss ×2, qwen): the only free Groq models on 2026-10-07.
+    judges: [gptoss120b, gptoss20b, qwen3_27b]
     # Round 1: each judge scores independently. Round 2: each judge sees the others'
     # round-1 verdicts and rationales and may revise (Du et al. 2023 style debate).
     # 3 judges × 2 rounds = 6 calls — matched to single_judge.samples.

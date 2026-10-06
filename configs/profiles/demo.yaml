@@ -1,0 +1,59 @@
+# Demo profile: a one-day, end-to-end run of the REAL pipeline at reduced scale.
+#   python scripts/02_label.py run --profile demo
+# Same code, prompts, judges and DPO loss as the full study; only sizes shrink.
+# Results from this profile are a pilot, not the paper's numbers.
+
+policies:
+  # 0.5B so training runs on a laptop (Apple MPS) in under an hour per model.
+  # Same family as the primary model; in the full study it is the "smaller" point.
+  primary: Qwen/Qwen2.5-0.5B-Instruct
+  generalization: []
+
+conditions:
+  _replace: true
+  base:        {train: false}
+  human:       {candidates: hh_rlhf,       labels: human}
+  multi_panel: {candidates: multi_persona, labels: panel}
+
+data_sizes:
+  # 150, not 200: the generator also holds a panel seat, so it makes 4 + 2 = 6 calls per
+  # prompt; 150 × 6 = 900 stays under its 1,000 requests/day with room for retries.
+  main: 150
+  scaling: []
+  scaling_conditions: []
+
+splits:
+  # Only these two prompt pools are touched; label-agreement / GSM8K checks are skipped.
+  dev_pairs: 0
+  label_agreement_pairs: 0
+  gsm8k_label_problems: 0
+
+gsm8k:
+  enabled: false
+
+seeds:
+  train: [0]
+
+training:
+  # ~150 pairs / effective batch 8 ≈ 19 steps per epoch, ~38 in total. The full study's
+  # 5e-6 with batch 16 would give ~19 tiny steps and barely move a LoRA adapter, so the
+  # demo uses a higher LR. Identical for both conditions, so the comparison stays fair.
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 4
+  learning_rate: 2.0e-5
+
+checkpointing:
+  save_steps: 25
+
+diagnostics:
+  eval_steps: null          # no dev split in the demo
+
+win_rate:
+  n_prompts: 100            # first 100 of the 500 held-out eval prompts
+  # Two independent jurors, neither used for labelling. Cohere's trial key allows 1,000
+  # calls/month; this evaluation uses ~600 of them.
+  jury: [gemini_lite, command]
+  comparisons:
+    - [human, base]
+    - [multi_panel, base]
+    - [multi_panel, human]

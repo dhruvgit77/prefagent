@@ -38,10 +38,11 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--force", action="store_true")
+    ap.add_argument("--profile", default=None, help="e.g. demo (configs/profiles/demo.yaml)")
     ap.add_argument("--set", nargs="*", default=[], dest="overrides")
     args = ap.parse_args()
 
-    cfg = load_config(overrides=args.overrides)
+    cfg = load_config(overrides=args.overrides, profile=args.profile)
     logging.basicConfig(level=cfg["logging"]["level"], format="%(levelname)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
 

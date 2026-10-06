@@ -69,15 +69,30 @@ def _by_id(path: Path) -> dict[str, dict]:
 
 
 def _run_resumable(items: list, fn, out: Path, workers: int, desc: str) -> int:
-    """Apply fn to items in parallel, appending each result to out as it finishes."""
+    """Apply fn to items in parallel, appending each result to out as it finishes.
+
+    A prompt that still fails after the client's retries (e.g. daily quota exhausted) is
+    logged and skipped, not fatal: it is simply absent from `out`, so re-running the same
+    command later picks it up.
+    """
     lock = threading.Lock()
+    done = failed = 0
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(fn, it) for it in items]
+        futures = {pool.submit(fn, it): it for it in items}
         for fut in tqdm(as_completed(futures), total=len(futures), desc=desc):
-            result = fut.result()
+            try:
+                result = fut.result()
+            except Exception as e:  # noqa: BLE001 — any failure just leaves the item undone
+                failed += 1
+                log.error("%s: item failed, will retry on next run: %s", desc, e)
+                continue
             with lock:
                 append_jsonl(out, result)
-    return len(items)
+            done += 1
+    if failed:
+        log.warning("%s: %d done, %d failed — re-run the same command to retry", desc,
+                    done, failed)
+    return done
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +152,7 @@ def label_plan(cfg: dict) -> list[dict]:
     """
     conds = {k: v for k, v in cfg["conditions"].items() if v.get("train", True)}
     main_n = cfg["data_sizes"]["main"]
-    scale_n = max(cfg["data_sizes"]["scaling"])
+    scale_n = max(cfg["data_sizes"]["scaling"], default=0)
     scaling = set(cfg["data_sizes"]["scaling_conditions"])
     n_dev = cfg["splits"]["dev_pairs"]
 
@@ -154,10 +169,12 @@ def label_plan(cfg: dict) -> list[dict]:
     plan = []
     for (src, method), n in sorted(needs.items(), key=lambda kv: (kv[0][1] is not None, kv[0])):
         plan.append({"split": "train", "source": src, "method": method, "n": n})
-        plan.append({"split": "dev", "source": src, "method": method, "n": n_dev})
-    for method in JUDGED:
+        if n_dev:
+            plan.append({"split": "dev", "source": src, "method": method, "n": n_dev})
+    n_agree = cfg["splits"]["label_agreement_pairs"]
+    for method in JUDGED if n_agree else ():
         plan.append({"split": "label_agreement", "source": "human_pair", "method": method,
-                     "n": cfg["splits"]["label_agreement_pairs"]})
+                     "n": n_agree})
     if cfg["gsm8k"]["enabled"]:
         n_g = cfg["splits"]["gsm8k_label_problems"]
         plan.append({"split": "gsm8k_label", "source": "multi_persona", "method": None, "n": n_g})
