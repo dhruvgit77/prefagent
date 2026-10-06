@@ -53,6 +53,9 @@ class ChatRequest:
     # Distinguishes repeated samples of the same request (temperature > 0). Part of the
     # cache key, so sample #3 of a prompt is reproducible yet different from sample #2.
     sample_idx: int = 0
+    # Re-asks after an unparseable reply. Part of the cache key; otherwise a retry would
+    # just return the same cached bad answer.
+    attempt: int = 0
     tag: str = ""                   # free-form label for logs (e.g. "judge:r1")
 
 
@@ -114,7 +117,7 @@ class LLMClient:
             "provider": spec["provider"], "model": spec["id"], "extra": spec.get("extra"),
             "messages": req.messages, "temperature": req.temperature, "top_p": req.top_p,
             "max_tokens": req.max_tokens, "json_mode": req.json_mode,
-            "sample_idx": req.sample_idx,
+            "sample_idx": req.sample_idx, "attempt": req.attempt,
         })
 
         if self.cache and (hit := self.cache.get(key)) is not None:

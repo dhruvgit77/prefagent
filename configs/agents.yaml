@@ -32,15 +32,17 @@ providers:
 
 llms:
   # name -> provider, model id, family. The family matters, not the size.
-  llama70b:   {provider: groq,    id: llama-3.3-70b-versatile,       family: llama}
+  # rpd = requests/day the free tier allows for that model (check your console);
+  # used only by `02_label.py budget` to estimate how many days a stage takes.
+  llama70b:   {provider: groq,    id: llama-3.3-70b-versatile,       family: llama, rpd: 1000}
   # gpt-oss is a reasoning model: hidden reasoning tokens count against max_tokens.
   # "low" effort keeps judge calls fast and stops reasoning from eating the JSON budget.
   gptoss120b: {provider: groq,    id: openai/gpt-oss-120b,           family: gpt-oss,
-               extra: {reasoning_effort: low}}
-  kimi_k2:    {provider: groq,    id: moonshotai/kimi-k2-instruct,   family: kimi}
-  gemini:     {provider: gemini,  id: gemini-2.5-flash,              family: gemini}
-  mistral:    {provider: mistral, id: mistral-small-latest,          family: mistral}
-  command:    {provider: cohere,  id: command-a-03-2025,             family: cohere}
+               extra: {reasoning_effort: low}, rpd: 1000}
+  kimi_k2:    {provider: groq,    id: moonshotai/kimi-k2-instruct,   family: kimi, rpd: 1000}
+  gemini:     {provider: gemini,  id: gemini-2.5-flash,              family: gemini, rpd: 250}
+  mistral:    {provider: mistral, id: mistral-small-latest,          family: mistral, rpd: 1000}
+  command:    {provider: cohere,  id: command-a-03-2025,             family: cohere, rpd: 1000}
 
 # ---------------------------------------------------------------------------
 # Candidate generation (factor 1 of the 2×2: DIVERSITY)
@@ -89,10 +91,16 @@ judging:
   max_tokens: 800
   response_format: json     # the verdict is validated with pydantic; retried on failure
   max_parse_retries: 3
+  # How final verdicts become one label — IDENTICAL for both judging levels, so the
+  # aggregation rule is not a hidden second difference between them. Each verdict's
+  # overall score for a candidate = mean over criteria; chosen = highest mean over
+  # final verdicts, rejected = lowest; exact ties broken by a seeded coin flip (never
+  # by candidate order, which would favour persona #1).
+  aggregate: mean_score
 
   single_judge:
     model: gptoss120b
-    # Self-consistency: 6 independent samples, majority vote on best/worst.
+    # Self-consistency: 6 independent samples, all treated as final verdicts.
     # 6 = the panel's call count, so any panel gain is not just "more compute".
     samples: 6
 
@@ -101,11 +109,11 @@ judging:
     # Round 1: each judge scores independently. Round 2: each judge sees the others'
     # round-1 verdicts and rationales and may revise (Du et al. 2023 style debate).
     # 3 judges × 2 rounds = 6 calls — matched to single_judge.samples.
+    # Only round-2 verdicts are final (3 verdicts); round 1 is the debate input.
     rounds: 2
-    aggregate: mean_score   # best = highest mean final score; worst = lowest
-    # Optional ablation from the original design: in round 2 one judge is told to
-    # argue against the current majority. Its output is a CRITIQUE shown to the
-    # others — it is never added to the candidate list.
+    # Optional ablation from the original design: in round 2 the first judge is told to
+    # make the strongest case for the response the round-1 majority rated lowest.
+    # It still returns a normal verdict — its argument is never added as a candidate.
     devils_advocate: false
 
   # Stored per pair and used by disagreement-aware DPO: the fraction of final

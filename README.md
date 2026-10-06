@@ -55,3 +55,19 @@ cp .env.example .env   # then fill in your free API keys
 ```
 
 Colab: see `notebooks/` (installs `requirements-train.txt`).
+
+## Pipeline stages
+
+```bash
+# 1. Prompt splits (CPU, minutes): data/prompts/*.jsonl + stats.json
+python scripts/01_prepare_data.py
+
+# 2. Agent labelling (API calls, resumable — re-run the same command after any stop)
+python scripts/02_label.py budget              # calls and days per model, spends nothing
+python scripts/02_label.py pilot --limit 20    # small run + printed spot-check
+python scripts/02_label.py run                 # full labelling plan
+python scripts/02_label.py pairs --split train # data/pairs/train/<condition>.jsonl
+python scripts/02_label.py pairs --split dev
+```
+
+Run tests with `pytest` (no network or API keys needed).
