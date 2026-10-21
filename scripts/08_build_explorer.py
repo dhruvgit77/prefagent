@@ -28,6 +28,14 @@ from prefagent.utils.io import read_jsonl  # noqa: E402
 
 TEMPLATE = Path(__file__).resolve().parent / "templates" / "explorer.html"
 PERSONAS = ["Concise", "Step-by-step", "Domain expert", "Careful sceptic"]
+# Human fact-checks shown beside a prompt in the walkthrough, with their sources.
+FACT_NOTES = {
+    "hh-helpful-base-train-012733": (
+        "Fact check: C. E. Byrd High School is at 3201 Line Avenue, Shreveport, "
+        "Louisiana. All four answers give fabricated locations, and the panel "
+        "unanimously rated one of them 5/5.",
+        "https://en.wikipedia.org/wiki/C._E._Byrd_High_School"),
+}
 
 
 def _by_id(path: Path, key: str = "prompt_id") -> dict[str, dict]:
@@ -52,6 +60,7 @@ def walkthrough(cfg: dict) -> list[dict]:
             "calls": [{k: call[k] for k in ("judge", "round", "scores", "best", "worst",
                                             "rationale")} for call in j["calls"]],
             "aggregate": j["aggregate"],
+            "fact_note": FACT_NOTES.get(j["prompt_id"]),
         })
     return out
 
@@ -112,6 +121,7 @@ def main() -> None:
         "reward": json.loads(args.reward.read_text()) if args.reward.exists() else None,
         "scorer": scorer(cfg),
         "panel_judges": cfg["judging"]["panel"]["judges"],
+        "model_ids": {k: v["id"] for k, v in cfg["llms"].items()},
     }
     blob = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
     html = TEMPLATE.read_text(encoding="utf-8").replace("/*__DATA__*/null", blob)

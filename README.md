@@ -4,6 +4,10 @@ Research code for studying **what makes multi-agent AI feedback effective** as a
 replacement for human preference labels when aligning small language models
 with Direct Preference Optimization (DPO) — at $0 compute cost.
 
+> **Presenting this project?** See [PRESENTATION_GUIDE.md](PRESENTATION_GUIDE.md) for
+> the demo script, every result with its source file, what is and isn't done yet,
+> and likely questions.
+
 ## Research questions
 
 1. **Label quality** — How accurately do agent-generated preference labels match
@@ -106,12 +110,11 @@ generated files are under the git-ignored `data/prompts/` directory:
 | `label_agreement.jsonl` | Held-out prompts with human labels for later agreement checks |
 | `stats.json` | Split counts and filtering/decontamination statistics |
 
-The verified smoke-test run produced 20 train, 10 dev, 20 eval, and 20
-label-agreement prompts. Each split was balanced across the `helpful-base` and
-`harmless-base` subsets. For example, a training prompt asks which chamber of
-the US Congress is the Upper House; its JSON record includes the prompt,
-subset, token count, and the two human-labeled responses. These counts are a
-small pipeline check, **not research results**.
+With these settings the command writes 20 train, 10 dev, 20 eval, and 20
+label-agreement prompts, each split balanced across the `helpful-base` and
+`harmless-base` subsets. Each JSON record holds the prompt, subset, token count,
+and the two human-labeled responses. These counts are a small pipeline check,
+**not research results**.
 
 To run the tests in the same environment:
 

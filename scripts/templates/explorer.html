@@ -208,8 +208,7 @@ const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 const pct = (x, d = 1) => x == null ? "–" : (100 * x).toFixed(d) + "%";
 const fmt = n => n.toLocaleString("en-US");
 const LETTERS = "ABCD";
-const JUDGE_NAMES = { gptoss120b: "GPT-OSS 120B", gptoss20b: "GPT-OSS 20B", qwen3_27b: "Qwen3 27B" };
-const jname = j => JUDGE_NAMES[j] || j;
+const jname = j => (DATA.model_ids || {})[j] || j;
 const words = t => t.split(/\s+/).filter(Boolean).length;
 const overall = s => { const v = Object.values(s); return v.reduce((a, b) => a + b, 0) / v.length; };
 const subsetLabel = s => ({ "helpful-base": "helpful", "harmless-base": "harmless" }[s] || s);
@@ -229,7 +228,7 @@ $("#tabs").addEventListener("keydown", e => {
 
 /* ---------- derived numbers ---------- */
 const F = DATA.stats.filtering;
-const sumKeys = suffix => Object.entries(F).filter(([k]) => k.endsWith("/train:" + suffix)).reduce((a, [, v]) => a + v, 0);
+const sumKeys = suffix => Object.entries(F).filter(([k]) => /\/(train|test):/.test(k) && k.endsWith(":" + suffix)).reduce((a, [, v]) => a + v, 0);
 const counts = DATA.stats.counts;
 const totalPrompts = Object.values(counts).reduce((a, b) => a + b, 0);
 const W = DATA.walkthrough;
@@ -249,15 +248,15 @@ $("#meta").innerHTML = [
     ["Candidate answers", "pilot", "Pilot", `${W.length} prompts × 4 personas`],
     ["Panel judging", "pilot", "Pilot", `3 judges × 2 rounds on each prompt`],
     ["Preference pairs", "done", "Built", `${pairsBuilt} agent pairs, ${fmt(counts.train)} human pairs`],
-    ["DPO training", "ready", "Code ready", "Qwen2.5 + LoRA; needs a GPU run"],
-    ["Win-rate evaluation", "ready", "Code ready", "Independent 2-family jury, length-controlled"],
+    ["DPO training", "ready", "Not run yet", "Code written (Qwen2.5 + LoRA); needs a GPU run"],
+    ["Win-rate evaluation", "ready", "Not run yet", "Code written; base-model responses generated for 100 prompts"],
   ];
   const funnel = [
-    ["Raw HH-RLHF train conversations", sumKeys("raw")],
+    ["Raw HH-RLHF conversations", sumKeys("raw")],
     ["Single-turn and valid", sumKeys("single_turn_valid")],
     ["Within the length limit", sumKeys("length_ok")],
     ["After exact deduplication", sumKeys("deduped")],
-    ["Used: final prompt splits", totalPrompts - (counts.gsm8k_label || 0)],
+    ["Sampled into the four HH-RLHF splits", totalPrompts - (counts.gsm8k_label || 0)],
   ];
   const max = funnel[0][1];
   const ag = AG && AG.summary.agreement_with_humans;
@@ -286,11 +285,11 @@ $("#meta").innerHTML = [
         <p>of agent pairs were unanimous. Unanimous is not the same as correct: see the C.E. Byrd example in the walkthrough.</p></div>
     </div>
     <div class="panel" style="display:grid;gap:14px">
-      <span class="label">Data preparation funnel (HH-RLHF train, helpful + harmless)</span>
+      <span class="label">Data preparation funnel (HH-RLHF helpful + harmless, train and test files)</span>
       <div class="funnel">${funnel.map(([n, v]) => `
         <div class="frow"><span>${n}</span><div class="ftrack"><div class="fbar" style="width:${Math.max(0.4, 100 * v / max)}%"></div></div><span class="num">${fmt(v)}</span></div>`).join("")}
       </div>
-      <p class="note">Near-duplicate check with sentence embeddings removed ${fmt(F["decontam:removed"])} of ${fmt(F["decontam:candidates"])} candidates that were too close to an evaluation prompt. Final splits: ${Object.entries(counts).map(([k, v]) => `${k.replace("_", " ")} ${fmt(v)}`).join(" · ")}.</p>
+      <p class="note">Near-duplicate check with sentence embeddings removed ${fmt(F["decontam:removed"])} of ${fmt(F["decontam:candidates"])} candidates that were too close to an evaluation prompt. The GSM8K split (${fmt(counts.gsm8k_label || 0)} problems) comes from a separate dataset. Final splits: ${Object.entries(counts).map(([k, v]) => `${k.replace("_", " ")} ${fmt(v)}`).join(" · ")}.</p>
     </div>`;
 })();
 
@@ -343,6 +342,7 @@ $("#meta").innerHTML = [
           <div class="score"><span class="mono">${m == null ? "–" : m.toFixed(2)}</span><div class="meter"><i style="width:${m == null ? 0 : 20 * m}%"></i></div><span class="muted">/ 5</span></div>
           <div class="text">${md(c.text)}</div></div>`;
       }).join("")}</div>
+      ${w.fact_note ? `<p class="resp r" style="white-space:normal"><b>${esc(w.fact_note[0])}</b> <span class="muted">Source: ${esc(w.fact_note[1])}</span></p>` : ""}
       ${w.dropped ? `<p class="note">${w.dropped} answer(s) were dropped as truncated or empty before judging.</p>` : ""}
       <div style="display:grid;gap:8px"><span class="label">Round ${round} verdicts · mean of 3 criteria, 1–5</span>
       <div class="tbl-wrap"><table><thead><tr><th>Judge</th>${w.candidates.map((_, i) => `<th class="num">${LETTERS[i]}</th>`).join("")}<th>Named best</th></tr></thead><tbody>

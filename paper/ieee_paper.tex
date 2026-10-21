@@ -51,8 +51,10 @@ that never participated in labelling, alongside rule-checked capability
 benchmarks, with paired-bootstrap confidence intervals and Holm correction. The
 entire framework is engineered to run at zero marginal cost on free-tier APIs and
 a single Google Colab T4 GPU. We describe the architecture, the labelling and
-evaluation protocols, the reproducibility design, and a reduced-scale pilot that
-exercises the full pipeline end to end.
+evaluation protocols and the reproducibility design, and report two early
+measurements on human-labelled data: an interpretable reward-model analysis of
+what HH-RLHF annotators reward, and a 50-pair check of how often the judge panel
+agrees with human labels.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -478,14 +480,14 @@ separately per HH-RLHF subset. Length and refusals flip sign between subsets.}
 
 \section{Pilot and Current Status}
 \label{sec:status}
-A reduced-scale ``demo'' profile exercises the entire pipeline end to end---the
-same code, prompts, judges, and DPO loss as the full study---using a 0.5B policy,
-150 pairs, and the \texttt{base}, \texttt{human}, and \texttt{multi\_panel}
-conditions, so that a complete run (label $\rightarrow$ train $\rightarrow$
-evaluate) finishes on a laptop in about an hour. This pilot validates the
-orchestration, caching, resumability, and evaluation plumbing; its numbers are a
-smoke test, not the study's results, and we therefore do not report them as
-findings.
+A reduced-scale ``demo'' profile runs the same code, prompts, judges, and DPO loss
+as the full study with a 0.5B policy, 150 pairs, and the \texttt{base},
+\texttt{human}, and \texttt{multi\_panel} conditions. So far it has been run
+only in part: candidate generation and panel judging for 22 training prompts
+(yielding 15 preference pairs; the others produced no usable pair) and greedy
+generation of the base policy's responses to 100 evaluation prompts. DPO training
+and the win-rate evaluation have not yet been run, so we report no policy-level
+results.
 
 \textbf{Label-agreement pilot.} As a first label-quality check, the panel judged
 50 held-out HH-RLHF pairs from the \texttt{label\_agreement} split, shown in
