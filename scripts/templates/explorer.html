@@ -1,0 +1,506 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PrefAgent Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: a lab-notebook instrument panel. Header + tab bar, then one working view per tab. */
+:root {
+  --paper: #F3F5F7;
+  --surface: #FFFFFF;
+  --sunk: #E9EDF1;
+  --ink: #0E1A2B;
+  --muted: #566274;
+  --line: #D8DFE6;
+  --accent: #0B6670;
+  --accent-soft: #DCEEEF;
+  --pos: #22609F;
+  --pos-soft: #DDE8F5;
+  --neg: #B4510E;
+  --neg-soft: #F6E4D6;
+  --warn: #8A6100;
+  --warn-soft: #F5EBCF;
+  --font-sans: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  --r: 10px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0F151C; --surface: #161E27; --sunk: #1D2733; --ink: #E5EAF0; --muted: #9AA6B4;
+    --line: #2A3542; --accent: #45B3BC; --accent-soft: #15353A; --pos: #74A9E6; --pos-soft: #1A2C42;
+    --neg: #EE9654; --neg-soft: #3A2516; --warn: #E3B341; --warn-soft: #362C12; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F151C; --surface: #161E27; --sunk: #1D2733; --ink: #E5EAF0; --muted: #9AA6B4;
+  --line: #2A3542; --accent: #45B3BC; --accent-soft: #15353A; --pos: #74A9E6; --pos-soft: #1A2C42;
+  --neg: #EE9654; --neg-soft: #3A2516; --warn: #E3B341; --warn-soft: #362C12; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.55 var(--font-sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 28px 64px; display: grid; gap: 24px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; line-height: 1.2; }
+h2 { font-size: 22px; font-weight: 600; }
+h3 { font-size: 16px; font-weight: 600; }
+p { margin: 0; }
+.mono, .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.label { font: 500 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+
+header.top { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: end; justify-content: space-between; }
+.brand { display: grid; gap: 6px; }
+.brand h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+.brand h1 span { color: var(--accent); }
+.brand p { color: var(--muted); max-width: 62ch; }
+.meta { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font: 500 12px/1.6 var(--font-mono); white-space: nowrap; border: 1px solid transparent; }
+.chip.done { background: var(--accent-soft); color: var(--accent); }
+.chip.pilot { background: var(--warn-soft); color: var(--warn); }
+.chip.ready { background: var(--sunk); color: var(--muted); border-color: var(--line); }
+.chip.pos { background: var(--pos-soft); color: var(--pos); }
+.chip.neg { background: var(--neg-soft); color: var(--neg); }
+
+nav.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav.tabs button { appearance: none; border: 0; background: none; color: var(--muted); cursor: pointer;
+  font: 500 15px var(--font-sans); padding: 10px 14px; border-bottom: 2px solid transparent; white-space: nowrap; }
+nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+nav.tabs button:hover { color: var(--ink); }
+button:focus-visible, select:focus-visible, textarea:focus-visible, .item:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; }
+.view { display: grid; gap: 20px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+
+/* overview */
+.question { font-size: 19px; line-height: 1.5; max-width: 70ch; }
+.stages { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0;
+  border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+.stage { padding: 16px; display: grid; gap: 8px; align-content: start; border-right: 1px solid var(--line); position: relative; }
+.stage:last-child { border-right: 0; }
+.stage .step { font: 500 12px var(--font-mono); color: var(--muted); }
+.stage h3 { font-size: 15px; }
+.stage p { font-size: 14px; color: var(--muted); }
+.funnel { display: grid; gap: 10px; }
+.frow { display: grid; grid-template-columns: minmax(150px, 230px) 1fr 90px; gap: 12px; align-items: center; font-size: 14px; }
+.fbar { height: 14px; border-radius: 3px; background: var(--accent); min-width: 3px; }
+.ftrack { background: var(--sunk); border-radius: 3px; }
+.frow .num { text-align: right; }
+.finding { display: grid; gap: 8px; align-content: start; }
+.big { font: 600 40px/1 var(--font-mono); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+
+/* walkthrough */
+.split { display: grid; grid-template-columns: 300px 1fr; gap: 20px; align-items: start; }
+.list { display: grid; gap: 2px; max-height: 760px; overflow: auto; padding: 6px; }
+.item { padding: 10px 12px; border-radius: 8px; cursor: pointer; display: grid; gap: 4px; border: 1px solid transparent; }
+.item:hover { background: var(--sunk); }
+.item[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.item .t { font-size: 14px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.item .m { display: flex; gap: 6px; flex-wrap: wrap; }
+.prompt { font-size: 20px; line-height: 1.4; font-weight: 500; border-left: 3px solid var(--accent); padding-left: 14px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { appearance: none; border: 0; background: var(--surface); color: var(--muted); padding: 7px 14px; cursor: pointer; font: 500 14px var(--font-sans); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.cands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.cand { border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 10px; align-content: start; background: var(--surface); }
+.cand.chosen { border-color: var(--pos); box-shadow: inset 0 3px 0 var(--pos); }
+.cand.rejected { border-color: var(--neg); box-shadow: inset 0 3px 0 var(--neg); }
+.cand .head { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cand .letter { font: 600 15px var(--font-mono); }
+.cand .text { font-size: 14px; line-height: 1.5; max-height: 220px; overflow: auto; white-space: pre-wrap; color: var(--ink); }
+.score { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.meter { flex: 1; height: 6px; background: var(--sunk); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--accent); }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font: 500 12px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+td.num, th.num { text-align: right; }
+td.best { color: var(--pos); font-weight: 600; }
+.rationale { font-size: 13px; color: var(--muted); margin-top: 4px; max-width: 80ch; }
+
+/* agreement */
+.pairs { display: grid; gap: 8px; }
+details.pair { border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+details.pair summary { cursor: pointer; padding: 12px 14px; display: flex; gap: 10px; align-items: center; list-style: none; }
+details.pair summary::-webkit-details-marker { display: none; }
+details.pair summary .t { flex: 1; font-size: 14px; }
+details.pair .body { padding: 0 14px 14px; display: grid; gap: 12px; }
+.resp { border-radius: 8px; padding: 12px; font-size: 14px; white-space: pre-wrap; }
+.resp.h { background: var(--pos-soft); }
+.resp.r { background: var(--neg-soft); }
+
+/* bars */
+.bars { display: grid; gap: 6px; }
+.brow { display: grid; grid-template-columns: minmax(130px, 170px) 1fr 64px; gap: 10px; align-items: center; font-size: 14px; }
+.brow .name { font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.dtrack { position: relative; height: 18px; }
+.dtrack::before { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--muted); }
+.dbar { position: absolute; top: 3px; height: 12px; border-radius: 2px; }
+.dbar.p { background: var(--pos); }
+.dbar.n { background: var(--neg); }
+.dbar.h1 { top: 0; height: 8px; background: var(--pos); }
+.dbar.h2 { top: 10px; height: 8px; background: var(--neg); }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -1px; margin-right: 6px; }
+.quote { font-size: 13px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 10px; }
+
+/* try it */
+.try { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+textarea { width: 100%; min-height: 150px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink); font: 15px/1.5 var(--font-sans); padding: 12px; }
+select { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: 14px var(--font-sans); padding: 7px 10px; }
+.btn { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 7px 12px; cursor: pointer; font: 500 14px var(--font-sans); }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.verdict { display: grid; gap: 10px; }
+.pbar { height: 16px; border-radius: 8px; background: var(--neg); overflow: hidden; }
+.pbar i { display: block; height: 100%; background: var(--pos); transition: width .25s ease; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.note { font-size: 13px; color: var(--muted); max-width: 80ch; }
+@media (max-width: 820px) {
+  .split, .try, .cands { grid-template-columns: 1fr; }
+  .list { max-height: 320px; }
+  .frow { grid-template-columns: 120px 1fr 70px; }
+}
+@media (prefers-reduced-motion: reduce) { .pbar i { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <h1>Pref<span>Agent</span> Explorer</h1>
+      <p>Multi-agent AI feedback for aligning small language models with DPO. Every number here is read from the project’s own data and output files.</p>
+    </div>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <nav class="tabs" role="tablist" id="tabs">
+    <button role="tab" id="tab-overview" aria-controls="overview" aria-selected="true">Overview</button>
+    <button role="tab" id="tab-walk" aria-controls="walk" aria-selected="false">Label walkthrough</button>
+    <button role="tab" id="tab-agree" aria-controls="agree" aria-selected="false">Agents vs. humans</button>
+    <button role="tab" id="tab-reward" aria-controls="reward" aria-selected="false">Reward model</button>
+    <button role="tab" id="tab-try" aria-controls="try" aria-selected="false">Try the reward model</button>
+  </nav>
+
+  <section class="view" id="overview" role="tabpanel" aria-labelledby="tab-overview"></section>
+  <section class="view" id="walk" role="tabpanel" aria-labelledby="tab-walk" hidden></section>
+  <section class="view" id="agree" role="tabpanel" aria-labelledby="tab-agree" hidden></section>
+  <section class="view" id="reward" role="tabpanel" aria-labelledby="tab-reward" hidden></section>
+  <section class="view" id="try" role="tabpanel" aria-labelledby="tab-try" hidden></section>
+</div>
+
+<script>
+const DATA = /*__DATA__*/null;
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const md = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+const pct = (x, d = 1) => x == null ? "–" : (100 * x).toFixed(d) + "%";
+const fmt = n => n.toLocaleString("en-US");
+const LETTERS = "ABCD";
+const JUDGE_NAMES = { gptoss120b: "GPT-OSS 120B", gptoss20b: "GPT-OSS 20B", qwen3_27b: "Qwen3 27B" };
+const jname = j => JUDGE_NAMES[j] || j;
+const words = t => t.split(/\s+/).filter(Boolean).length;
+const overall = s => { const v = Object.values(s); return v.reduce((a, b) => a + b, 0) / v.length; };
+const subsetLabel = s => ({ "helpful-base": "helpful", "harmless-base": "harmless" }[s] || s);
+
+/* ---------- tabs ---------- */
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+function selectTab(btn) {
+  tabs.forEach(b => { const on = b === btn; b.setAttribute("aria-selected", on); document.getElementById(b.getAttribute("aria-controls")).hidden = !on; });
+  try { localStorage.setItem("prefagent-tab", btn.id); } catch (e) {}
+}
+tabs.forEach(b => b.addEventListener("click", () => selectTab(b)));
+$("#tabs").addEventListener("keydown", e => {
+  const i = tabs.indexOf(document.activeElement); if (i < 0) return;
+  const j = e.key === "ArrowRight" ? (i + 1) % tabs.length : e.key === "ArrowLeft" ? (i + tabs.length - 1) % tabs.length : -1;
+  if (j >= 0) { tabs[j].focus(); selectTab(tabs[j]); }
+});
+
+/* ---------- derived numbers ---------- */
+const F = DATA.stats.filtering;
+const sumKeys = suffix => Object.entries(F).filter(([k]) => k.endsWith("/train:" + suffix)).reduce((a, [, v]) => a + v, 0);
+const counts = DATA.stats.counts;
+const totalPrompts = Object.values(counts).reduce((a, b) => a + b, 0);
+const W = DATA.walkthrough;
+const pairsBuilt = W.filter(w => w.aggregate).length;
+const AG = DATA.agreement;
+
+$("#meta").innerHTML = [
+  `<span class="chip done">data ready</span>`,
+  `<span class="chip pilot">labelling pilot</span>`,
+  `<span class="chip ready">training: needs GPU</span>`,
+].join("");
+
+/* ---------- overview ---------- */
+(function overview() {
+  const stages = [
+    ["Prompt preparation", "done", "Done", `${fmt(totalPrompts)} prompts in 5 splits, decontaminated`],
+    ["Candidate answers", "pilot", "Pilot", `${W.length} prompts × 4 personas`],
+    ["Panel judging", "pilot", "Pilot", `3 judges × 2 rounds on each prompt`],
+    ["Preference pairs", "done", "Built", `${pairsBuilt} agent pairs, ${fmt(counts.train)} human pairs`],
+    ["DPO training", "ready", "Code ready", "Qwen2.5 + LoRA; needs a GPU run"],
+    ["Win-rate evaluation", "ready", "Code ready", "Independent 2-family jury, length-controlled"],
+  ];
+  const funnel = [
+    ["Raw HH-RLHF train conversations", sumKeys("raw")],
+    ["Single-turn and valid", sumKeys("single_turn_valid")],
+    ["Within the length limit", sumKeys("length_ok")],
+    ["After exact deduplication", sumKeys("deduped")],
+    ["Used: final prompt splits", totalPrompts - (counts.gsm8k_label || 0)],
+  ];
+  const max = funnel[0][1];
+  const ag = AG && AG.summary.agreement_with_humans;
+  const sub = DATA.reward && DATA.reward.by_subset;
+  $("#overview").innerHTML = `
+    <div class="panel" style="display:grid;gap:12px">
+      <span class="label">Research question</span>
+      <p class="question">When AI agents label preference data for DPO, what makes the labels good: <b>diverse candidate answers</b> (four personas) or <b>deliberation</b> (a panel of judges that debates over two rounds)? A 2×2 design at matched compute (6 judge calls per prompt) separates the two.</p>
+    </div>
+    <div style="display:grid;gap:10px">
+      <span class="label">Pipeline status</span>
+      <div class="stages">${stages.map((s, i) => `
+        <div class="stage"><span class="step">stage ${i + 1}</span><h3>${s[0]}</h3>
+        <span><span class="chip ${s[1]}">${s[2]}</span></span><p>${s[3]}</p></div>`).join("")}
+      </div>
+    </div>
+    <div class="grid3">
+      <div class="panel finding"><span class="label">Agents vs. humans</span>
+        <div class="big">${ag ? pct(ag.rate) : "–"}</div>
+        <p>of HH-RLHF pairs where the agent panel picks the response humans preferred${ag ? ` (n = ${ag.n}, 95% CI ${pct(ag.ci95[0], 0)}–${pct(ag.ci95[1], 0)})` : ""}.</p></div>
+      <div class="panel finding"><span class="label">Reward model</span>
+        <div class="big">${sub ? pct(sub["helpful-base"].pairwise_accuracy) : "–"}</div>
+        <p>held-out accuracy on helpfulness prompts, ${sub ? pct(sub["harmless-base"].pairwise_accuracy) : "–"} on harmlessness. Length and refusals flip direction between the two.</p></div>
+      <div class="panel finding"><span class="label">Pilot labels</span>
+        <div class="big">${W.length ? pct(W.filter(w => w.aggregate && w.aggregate.agreement === 1).length / Math.max(1, pairsBuilt), 0) : "–"}</div>
+        <p>of agent pairs were unanimous. Unanimous is not the same as correct: see the C.E. Byrd example in the walkthrough.</p></div>
+    </div>
+    <div class="panel" style="display:grid;gap:14px">
+      <span class="label">Data preparation funnel (HH-RLHF train, helpful + harmless)</span>
+      <div class="funnel">${funnel.map(([n, v]) => `
+        <div class="frow"><span>${n}</span><div class="ftrack"><div class="fbar" style="width:${Math.max(0.4, 100 * v / max)}%"></div></div><span class="num">${fmt(v)}</span></div>`).join("")}
+      </div>
+      <p class="note">Near-duplicate check with sentence embeddings removed ${fmt(F["decontam:removed"])} of ${fmt(F["decontam:candidates"])} candidates that were too close to an evaluation prompt. Final splits: ${Object.entries(counts).map(([k, v]) => `${k.replace("_", " ")} ${fmt(v)}`).join(" · ")}.</p>
+    </div>`;
+})();
+
+/* ---------- walkthrough ---------- */
+(function walkthrough() {
+  const el = $("#walk");
+  if (!W.length) { el.innerHTML = `<div class="panel">No judged prompts yet. Run <span class="mono">scripts/02_label.py pilot</span>.</div>`; return; }
+  const start = Math.max(0, W.findIndex(w => /Byrd/.test(w.prompt)));
+  let cur = start, round = 2;
+  el.innerHTML = `
+    <p class="note">Each prompt gets four answers from one model playing four personas. Three judges score every answer on helpfulness, correctness and harmlessness, first independently (round 1), then again after reading each other’s verdicts (round 2). The best and worst by mean score become a preference pair.</p>
+    <div class="split">
+      <div class="panel list" id="wlist" role="listbox" aria-label="Judged prompts"></div>
+      <div class="panel" id="wdetail" style="display:grid;gap:18px"></div>
+    </div>`;
+  const list = $("#wlist");
+  list.innerHTML = W.map((w, i) => {
+    const a = w.aggregate;
+    const chip = !a ? `<span class="chip ready">no pair</span>` : a.agreement === 1 ? `<span class="chip done">unanimous</span>` : `<span class="chip pilot">agreement ${a.agreement.toFixed(2)}</span>`;
+    return `<div class="item" role="option" tabindex="0" data-i="${i}" aria-selected="${i === cur}"><span class="t">${esc(w.prompt)}</span><span class="m"><span class="chip ready">${subsetLabel(w.subset)}</span>${chip}</span></div>`;
+  }).join("");
+  const pick = i => { cur = i; list.querySelectorAll(".item").forEach(n => n.setAttribute("aria-selected", +n.dataset.i === i)); draw(); };
+  list.addEventListener("click", e => { const it = e.target.closest(".item"); if (it) pick(+it.dataset.i); });
+  list.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === " ") { const it = e.target.closest(".item"); if (it) { e.preventDefault(); pick(+it.dataset.i); } }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const j = Math.min(W.length - 1, Math.max(0, cur + (e.key === "ArrowDown" ? 1 : -1))); pick(j); list.querySelector(`[data-i="${j}"]`).focus(); }
+  });
+
+  function draw() {
+    const w = W[cur], a = w.aggregate;
+    const calls = w.calls.filter(c => c.round === round);
+    const judges = [...new Set(w.calls.map(c => c.judge))];
+    const n = w.candidates.length;
+    const roundMean = i => { const v = calls.map(c => overall(c.scores[i])); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
+    const pairNote = !a
+      ? `<span class="chip ready">no pair</span> <span class="muted">${n < 2 ? "Too few usable answers." : "The judges saw no difference between the answers."}</span>`
+      : `<span class="chip pos">chosen ${LETTERS[a.chosen]}</span> <span class="chip neg">rejected ${LETTERS[a.rejected]}</span> <span class="muted">Panel agreement ${a.agreement.toFixed(2)}: the share of final verdicts that also rank ${LETTERS[a.chosen]} above ${LETTERS[a.rejected]}.</span>`;
+    $("#wdetail").innerHTML = `
+      <div style="display:grid;gap:10px"><span class="label">Prompt · ${subsetLabel(w.subset)}</span><p class="prompt">${esc(w.prompt)}</p></div>
+      <div class="row" style="justify-content:space-between">
+        <div class="row">${pairNote}</div>
+        <div class="seg" role="group" aria-label="Judging round">
+          <button aria-pressed="${round === 1}" data-r="1">Round 1 · independent</button>
+          <button aria-pressed="${round === 2}" data-r="2">Round 2 · after debate</button>
+        </div>
+      </div>
+      <div class="cands">${w.candidates.map((c, i) => {
+        const m = roundMean(i), cls = a && i === a.chosen ? "chosen" : a && i === a.rejected ? "rejected" : "";
+        return `<div class="cand ${cls}"><div class="head"><span class="letter">${LETTERS[i]} · ${esc(c.persona)}</span><span class="muted mono" style="font-size:12px">${words(c.text)} words</span></div>
+          <div class="score"><span class="mono">${m == null ? "–" : m.toFixed(2)}</span><div class="meter"><i style="width:${m == null ? 0 : 20 * m}%"></i></div><span class="muted">/ 5</span></div>
+          <div class="text">${md(c.text)}</div></div>`;
+      }).join("")}</div>
+      ${w.dropped ? `<p class="note">${w.dropped} answer(s) were dropped as truncated or empty before judging.</p>` : ""}
+      <div style="display:grid;gap:8px"><span class="label">Round ${round} verdicts · mean of 3 criteria, 1–5</span>
+      <div class="tbl-wrap"><table><thead><tr><th>Judge</th>${w.candidates.map((_, i) => `<th class="num">${LETTERS[i]}</th>`).join("")}<th>Named best</th></tr></thead><tbody>
+      ${judges.map(j => { const c = calls.find(x => x.judge === j); if (!c) return `<tr><td>${jname(j)}</td><td colspan="${n + 1}" class="muted">no valid verdict</td></tr>`;
+        return `<tr><td>${jname(j)}<div class="rationale">${esc(c.rationale)}</div></td>${c.scores.map((s, i) => `<td class="num mono ${i === c.best ? "best" : ""}">${overall(s).toFixed(2)}</td>`).join("")}<td class="mono">${LETTERS[c.best]}</td></tr>`; }).join("")}
+      </tbody></table></div></div>`;
+    $("#wdetail").querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => { round = +b.dataset.r; draw(); }));
+  }
+  draw();
+})();
+
+/* ---------- agreement ---------- */
+(function agreement() {
+  const el = $("#agree");
+  if (!AG) { el.innerHTML = `<div class="panel">No label-agreement judgements yet. Run <span class="mono">scripts/02_label.py judge --split label_agreement --source human_pair</span>.</div>`; return; }
+  const S = AG.summary, ov = S.agreement_with_humans;
+  const jr = S.per_judge_round;
+  const judges = [...new Set(Object.keys(jr).map(k => k.split(" ")[0]))];
+  const rows = AG.rows;
+  let filter = "all";
+  el.innerHTML = `
+    <p class="note">These are HH-RLHF pairs that people already labelled. The panel judges each pair blind, in shuffled order, and we check whether it picks the response the human picked. The data are noisy: human annotators themselves often disagree on HH-RLHF.</p>
+    <div class="grid3">
+      <div class="panel finding"><span class="label">Panel agrees with humans</span><div class="big">${pct(ov.rate)}</div>
+        <p class="muted">${ov.n} pairs · 95% CI ${pct(ov.ci95[0], 0)}–${pct(ov.ci95[1], 0)} · a tie counts as half</p></div>
+      <div class="panel finding"><span class="label">By confidence</span>
+        ${Object.entries(S.by_panel_confidence).map(([k, v]) => `<p><b>${k}</b> panel: <span class="mono">${pct(v.rate)}</span> <span class="muted">(n = ${v.n})</span></p>`).join("")}
+        ${Object.entries(S.by_subset).map(([k, v]) => `<p><b>${subsetLabel(k)}</b> prompts: <span class="mono">${pct(v.rate)}</span> <span class="muted">(n = ${v.n})</span></p>`).join("")}</div>
+      <div class="panel finding"><span class="label">Position bias</span><div class="big">${pct(S.picked_first_shown_rate.rate)}</div>
+        <p class="muted">of judge calls named the first-shown response as best. 50% means no position bias.</p></div>
+    </div>
+    <div class="panel" style="display:grid;gap:10px">
+      <span class="label">Each judge, before and after deliberation</span>
+      <div class="tbl-wrap"><table><thead><tr><th>Judge</th><th class="num">Round 1 · alone</th><th class="num">Round 2 · after debate</th><th class="num">Change</th></tr></thead><tbody>
+      ${judges.map(j => { const a = jr[j + " r1"], b = jr[j + " r2"]; const d = a && b ? b.rate - a.rate : null;
+        return `<tr><td>${jname(j)}</td><td class="num mono">${a ? pct(a.rate) : "–"}</td><td class="num mono">${b ? pct(b.rate) : "–"}</td><td class="num mono">${d == null ? "–" : (d >= 0 ? "+" : "−") + Math.abs(100 * d).toFixed(1) + " pts"}</td></tr>`; }).join("")}
+      </tbody></table></div>
+    </div>
+    <div style="display:grid;gap:10px">
+      <div class="row" style="justify-content:space-between"><span class="label">All ${rows.length} pairs</span>
+        <div class="seg" role="group" aria-label="Filter pairs">
+          <button aria-pressed="true" data-f="all">All</button><button aria-pressed="false" data-f="miss">Disagreements</button><button aria-pressed="false" data-f="hit">Agreements</button>
+        </div></div>
+      <div class="pairs" id="plist"></div>
+    </div>`;
+  const draw = () => {
+    const shown = rows.filter(r => filter === "all" || (filter === "hit") === (r.panel_pick === 0));
+    $("#plist").innerHTML = shown.map(r => {
+      const verdict = r.panel_pick == null ? `<span class="chip ready">tie</span>` : r.panel_pick === 0 ? `<span class="chip pos">agrees</span>` : `<span class="chip neg">disagrees</span>`;
+      const sc = r.scores ? ` · panel scores: human-chosen ${r.scores[0].toFixed(2)}, human-rejected ${r.scores[1].toFixed(2)}` : "";
+      const fin = r.rationales.filter(x => x.round === 2);
+      return `<details class="pair"><summary>${verdict}<span class="t">${esc(r.prompt)}</span><span class="chip ready">${subsetLabel(r.subset)}</span></summary>
+        <div class="body"><p class="note">Panel agreement ${r.panel_agreement == null ? "–" : r.panel_agreement.toFixed(2)}${sc}</p>
+        <div class="grid2"><div style="display:grid;gap:6px"><span class="label">Human chose</span><div class="resp h">${esc(r.human_chosen)}</div></div>
+        <div style="display:grid;gap:6px"><span class="label">Human rejected</span><div class="resp r">${esc(r.human_rejected)}</div></div></div>
+        ${fin.map(x => `<p class="quote"><b>${jname(x.judge)}</b> named the ${x.best === 0 ? "human-chosen" : "human-rejected"} response best: ${esc(x.rationale)}</p>`).join("")}</div></details>`;
+    }).join("") || `<p class="muted">No pairs in this view.</p>`;
+  };
+  el.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => {
+    filter = b.dataset.f; el.querySelectorAll(".seg button").forEach(x => x.setAttribute("aria-pressed", x === b)); draw();
+  }));
+  draw();
+})();
+
+/* ---------- reward model ---------- */
+function divergingRows(items, max) {
+  return items.map(([name, v, extra]) => {
+    const w = 50 * Math.abs(v) / max;
+    return `<div class="brow"><span class="name">${esc(name)}</span><div class="dtrack"><div class="dbar ${v >= 0 ? "p" : "n"}" style="${v >= 0 ? `left:50%` : `left:${50 - w}%`};width:${w}%"></div></div><span class="num mono">${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}</span></div>${extra || ""}`;
+  }).join("");
+}
+(function reward() {
+  const el = $("#reward"), R = DATA.reward;
+  if (!R) { el.innerHTML = `<div class="panel">No reward-model output yet. Run <span class="mono">scripts/06_explain_preferences.py</span>.</div>`; return; }
+  const subs = Object.entries(R.by_subset || {});
+  const feats = DATA.scorer.features;
+  const smax = Math.max(...subs.flatMap(([, s]) => feats.map(f => Math.abs(s.text_feature_coefficients[f]))));
+  const top = R.features.slice(0, 10);
+  const gmax = Math.max(...top.map(f => Math.abs(f.coefficient)));
+  el.innerHTML = `
+    <p class="note">A small Bradley–Terry reward model learns which response in a pair people preferred, from five named text features plus eight summary directions of a sentence embedding. Accuracy is measured on held-out pairs with 5-fold cross-validation. It runs on a laptop CPU in about 30 seconds.</p>
+    <div class="panel" style="display:grid;gap:10px"><span class="label">Held-out pairwise accuracy · ${esc(R.label_source.replace("_", " "))}</span>
+      <div class="tbl-wrap"><table><thead><tr><th>Pairs</th><th class="num">n</th><th class="num">Accuracy</th><th class="num">95% CI</th><th class="num">“Longer wins” baseline</th></tr></thead><tbody>
+      <tr><td>All pairs, one model</td><td class="num mono">${fmt(R.n_pairs)}</td><td class="num mono">${pct(R.pairwise_accuracy)}</td><td class="num mono">${pct(R.pairwise_accuracy_ci95[0])}–${pct(R.pairwise_accuracy_ci95[1])}</td><td class="num mono">${pct(R.baseline_longer_response_wins)}</td></tr>
+      ${subs.map(([k, s]) => `<tr><td>${subsetLabel(k)} prompts, own model</td><td class="num mono">${fmt(s.n_pairs)}</td><td class="num mono">${pct(s.pairwise_accuracy)}</td><td class="num mono">${pct(s.pairwise_accuracy_ci95[0])}–${pct(s.pairwise_accuracy_ci95[1])}</td><td class="num mono">${pct(s.baseline_longer_response_wins)}</td></tr>`).join("")}
+      </tbody></table></div>
+    </div>
+    <div class="grid2">
+      <div class="panel" style="display:grid;gap:14px"><h2>Helpful and harmless prompts reward opposite things</h2>
+        <div class="legend"><span><i style="background:var(--pos)"></i>helpful prompts</span><span><i style="background:var(--neg)"></i>harmless prompts</span><span>right of the line = preferred</span></div>
+        <div class="bars">${feats.map(f => {
+          const [a, b] = subs.map(([, s]) => s.text_feature_coefficients[f]);
+          const seg = (v, cls) => { const w = 50 * Math.abs(v) / smax; return `<div class="dbar ${cls}" style="${v >= 0 ? "left:50%" : `left:${50 - w}%`};width:${w}%"></div>`; };
+          return `<div class="brow"><span class="name">${f}</span><div class="dtrack">${seg(a, "h1")}${seg(b, "h2")}</div><span class="num mono" style="font-size:12px">${a >= 0 ? "+" : "−"}${Math.abs(a).toFixed(2)}<br>${b >= 0 ? "+" : "−"}${Math.abs(b).toFixed(2)}</span></div>`;
+        }).join("")}</div>
+        <p class="note">On helpfulness prompts, longer answers win and refusals lose. On harmlessness prompts, shorter answers and refusals win, and “the longer answer wins” is right only ${pct(R.by_subset["harmless-base"]?.baseline_longer_response_wins)} of the time.</p>
+      </div>
+      <div class="panel" style="display:grid;gap:14px"><h2>What the pooled model rewards</h2>
+        <div class="legend"><span><i style="background:var(--pos)"></i>preferred</span><span><i style="background:var(--neg)"></i>dispreferred</span><span>weights on standardized differences</span></div>
+        <div class="bars">${divergingRows(top.map(f => {
+          const ex = R.embedding_pc_examples && R.embedding_pc_examples[f.feature];
+          const extra = ex ? `<p class="quote">high end: “${esc(ex.high[0])}”</p>` : "";
+          return [f.feature, f.coefficient, extra];
+        }), gmax)}</div>
+      </div>
+    </div>
+    <p class="note">${esc(R.interpretation_note)}</p>`;
+})();
+
+/* ---------- try it ---------- */
+(function tryIt() {
+  const S = DATA.scorer, el = $("#try");
+  const rx = terms => new RegExp("\\b(?:" + terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")\\b", "g");
+  const HEDGE = rx(S.hedge_terms), REFUSE = rx(S.refusal_terms), LIST = /^\s*(?:[-*•]|\d+[.)])\s+/gm;
+  const feats = t => { const low = t.toLowerCase().replace(/’/g, "'");
+    return [Math.log1p(words(t)), (low.match(HEDGE) || []).length, (low.match(REFUSE) || []).length, (t.match(/\?/g) || []).length, (t.match(LIST) || []).length]; };
+  const EXAMPLES = {
+    harmful: { subset: "harmless-base", a: "I’m sorry, I can’t help with breaking into someone else’s car. If you’re locked out of your own car, a locksmith or your roadside assistance service can get you back in safely.", b: "Sure! First get a slim jim or a thin metal strip. Slide it between the window and the weather stripping, then hook the lock rod and pull up until the door unlocks." },
+    howto: { subset: "helpful-base", a: "Boil water.", b: "Here is a simple way to make good tea:\n1. Bring fresh water to a boil.\n2. Warm the pot or mug first.\n3. Add one teabag or a teaspoon of loose leaves per cup.\n4. Steep black tea for 3–5 minutes, then remove the leaves.\n5. Add milk or sugar to taste." },
+    hedge: { subset: "helpful-base", a: "I think it might possibly be around 100 degrees, but I’m not sure, maybe check?", b: "Water boils at 100 °C (212 °F) at sea level. At higher altitudes it boils at a lower temperature because the air pressure is lower." },
+  };
+  el.innerHTML = `
+    <p class="note">Type or paste two answers to the same prompt. The model scores each one and estimates how likely people would prefer answer A. This live version uses only the five named text features, so it runs in the browser. Pick which kind of prompt it is: the two subsets reward different things.</p>
+    <div class="row">
+      <label for="tsub" class="label">Prompt type</label>
+      <select id="tsub"><option value="helpful-base">Helpfulness prompt</option><option value="harmless-base">Harmlessness prompt</option><option value="all">Either (pooled model)</option></select>
+      <span class="muted" style="font-size:13px">Examples:</span>
+      <button class="btn" data-ex="harmful">Harmful request</button>
+      <button class="btn" data-ex="howto">One line vs. steps</button>
+      <button class="btn" data-ex="hedge">Hedging vs. direct</button>
+    </div>
+    <div class="try">
+      <div style="display:grid;gap:6px"><label for="ta" class="label">Answer A</label><textarea id="ta"></textarea></div>
+      <div style="display:grid;gap:6px"><label for="tb" class="label">Answer B</label><textarea id="tb"></textarea></div>
+    </div>
+    <div class="panel verdict" id="tverdict" aria-live="polite"></div>`;
+  const run = () => {
+    const m = S.models[$("#tsub").value];
+    const fa = feats($("#ta").value), fb = feats($("#tb").value);
+    const contrib = m.coef.map((c, i) => c * (fa[i] - fb[i]) / m.scale[i]);
+    const z = contrib.reduce((x, y) => x + y, 0), p = 1 / (1 + Math.exp(-z));
+    const max = Math.max(0.05, ...contrib.map(Math.abs));
+    const raw = (i, v) => i === 0 ? `${Math.round(Math.expm1(v))} words` : v;
+    $("#tverdict").innerHTML = `
+      <div class="row" style="justify-content:space-between"><h2>${p >= 0.5 ? "A" : "B"} is more likely to be preferred</h2><span class="mono">P(A preferred) = ${pct(p)}</span></div>
+      <div class="pbar" role="img" aria-label="A ${pct(p)}, B ${pct(1 - p)}"><i style="width:${100 * p}%"></i></div>
+      <div class="legend"><span><i style="background:var(--pos)"></i>pushes toward A</span><span><i style="background:var(--neg)"></i>pushes toward B</span></div>
+      <div class="bars">${S.features.map((f, i) => {
+        const v = contrib[i], w = 50 * Math.abs(v) / max;
+        return `<div class="brow"><span class="name">${f}<br><span class="muted" style="font-size:12px">A: ${raw(i, fa[i])} · B: ${raw(i, fb[i])}</span></span><div class="dtrack"><div class="dbar ${v >= 0 ? "p" : "n"}" style="${v >= 0 ? "left:50%" : `left:${50 - w}%`};width:${w}%"></div></div><span class="num mono">${v >= 0 ? "+" : "−"}${Math.abs(v).toFixed(2)}</span></div>`;
+      }).join("")}</div>
+      <p class="note">Fitted on ${fmt(m.n_pairs)} human-labelled HH-RLHF pairs. With text features alone it is a weak model (it fits ${pct(m.train_accuracy)} of its own training pairs), so treat it as a picture of what people tend to reward, not a judge.</p>`;
+  };
+  const load = k => { const e = EXAMPLES[k]; $("#tsub").value = e.subset; $("#ta").value = e.a; $("#tb").value = e.b; run(); };
+  el.querySelectorAll("[data-ex]").forEach(b => b.addEventListener("click", () => load(b.dataset.ex)));
+  ["#ta", "#tb", "#tsub"].forEach(s => $(s).addEventListener("input", run));
+  load("harmful");
+})();
+
+try { const t = localStorage.getItem("prefagent-tab"); const b = t && document.getElementById(t); if (b) selectTab(b); } catch (e) {}
+</script>

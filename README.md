@@ -192,6 +192,21 @@ with the human label with a bootstrap CI, by subset, by panel confidence
 rate at which judges pick the first-shown response (position bias). Output:
 `outputs/label_agreement/agreement.json`.
 
+### Interactive explorer
+
+`scripts/08_build_explorer.py` turns the real data and outputs into one
+self-contained page, `outputs/explorer/index.html`, that opens offline in any
+browser. It has five views: an overview with pipeline status and the data funnel;
+a label walkthrough showing each prompt's four persona answers and every judge's
+round 1 and round 2 scores and reasons; agents vs. humans agreement with every pair
+browsable; the reward-model results; and a live scorer where you type two answers
+and see which one the text-feature reward model expects people to prefer, and why.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\08_build_explorer.py
+start outputs\explorer\index.html
+```
+
 ### What is ready and what remains
 
 - **Demonstrable now:** prompt preparation, saved split files and filtering
