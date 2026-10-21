@@ -7,6 +7,7 @@ from prefagent.data import gsm8k
 from prefagent.data.hh_rlhf import normalize, parse_single_turn
 from prefagent.data.prepare import stratified_take
 from prefagent.data.schema import PreferencePair
+from prefagent.utils.io import append_jsonl, read_jsonl, write_json, write_jsonl
 
 
 # --- HH-RLHF parsing --------------------------------------------------------
@@ -55,6 +56,18 @@ def test_stratified_take_balanced_and_disjoint():
 def test_stratified_take_fails_loudly_when_short():
     with pytest.raises(ValueError):
         stratified_take({"a": [{"id": "1"}], "b": [{"id": "2"}]}, 4, random.Random(0))
+
+
+def test_json_helpers_preserve_unicode(tmp_path):
+    record = {"prompt": "Dvojitá dĺžeň: ő"}
+    path = tmp_path / "records.jsonl"
+    assert write_jsonl(path, [record]) == 1
+    append_jsonl(path, record)
+    assert read_jsonl(path) == [record, record]
+
+    json_path = tmp_path / "record.json"
+    write_json(json_path, record)
+    assert json_path.read_text(encoding="utf-8") == '{\n  "prompt": "Dvojitá dĺžeň: ő"\n}'
 
 
 # --- GSM8K ------------------------------------------------------------------

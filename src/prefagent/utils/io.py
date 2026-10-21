@@ -14,7 +14,7 @@ def read_jsonl(path: str | Path) -> list[dict]:
 
 
 def iter_jsonl(path: str | Path) -> Iterator[dict]:
-    with Path(path).open() as f:
+    with Path(path).open(encoding="utf-8") as f:
         for line_no, line in enumerate(f, 1):
             line = line.strip()
             if not line:
@@ -33,7 +33,7 @@ def write_jsonl(path: str | Path, records: Iterable[dict]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     n = 0
-    with tmp.open("w") as f:
+    with tmp.open("w", encoding="utf-8") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
             n += 1
@@ -45,7 +45,7 @@ def append_jsonl(path: str | Path, record: dict) -> None:
     """Append one record and flush, used for resumable long-running loops."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a") as f:
+    with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
         f.flush()
 
@@ -53,4 +53,4 @@ def append_jsonl(path: str | Path, record: dict) -> None:
 def write_json(path: str | Path, obj: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, indent=2, ensure_ascii=False))
+    path.write_text(json.dumps(obj, indent=2, ensure_ascii=False), encoding="utf-8")
