@@ -70,7 +70,11 @@ python scripts/02_label.py pairs --split train # data/pairs/train/<condition>.js
 python scripts/02_label.py pairs --split dev
 
 # 3. Reward model + SHAP explanation (CPU; no LLM API calls)
-python scripts/06_explain_preferences.py --limit 20
+python scripts/06_explain_preferences.py --input data/prompts/train.jsonl   # ~30 s
+
+# 4. Label quality vs. human labels (judge calls use the API; the report does not)
+python scripts/02_label.py judge --split label_agreement --source human_pair --limit 50
+python scripts/07_label_agreement.py
 ```
 
 Run tests with `pytest` (no network or API keys needed).
@@ -143,21 +147,50 @@ of which response features influence its preference predictions. Run this after
 prompt preparation:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts\06_explain_preferences.py --limit 20
+.\.venv\Scripts\python.exe scripts\06_explain_preferences.py --input data/prompts/train.jsonl
 ```
 
 If `data/pairs/train/multi_panel.jsonl` exists, the script uses those agent-labeled
 pairs; otherwise, it uses the prepared HH-RLHF human-labeled pairs in
-`data/prompts/train.jsonl`. It embeds responses, adds word-count and hedging
-features, fits a logistic-regression reward model, and measures pairwise accuracy
-on held-out pairs. It writes `outputs/explain/reward_model.json` and
-`outputs/explain/shap_summary.png`. The report identifies whether its labels came
-from agent pairs or HH-RLHF human labels.
+`data/prompts/train.jsonl` (the report's `label_source` says which, or `mixed:…`).
+Pass `--input` explicitly when you want a specific label source.
 
-The demo's 20-pair smoke-test dataset is only enough to verify the workflow. Its
-held-out accuracy and SHAP rankings are exploratory and must not be described as
-reliable scientific findings. For research, use a larger labeled set and report
-results on held-out data.
+- **Model:** a pairwise Bradley–Terry reward model, i.e. logistic regression on the
+  standardized feature *difference* φ(chosen) − φ(rejected), so it is trained on the
+  same pairwise objective it is evaluated on.
+- **Features:** named text signals (`log_word_count`, `hedge_count`,
+  `refusal_count`, `question_count`, `list_item_count`) plus 8 PCA components of a
+  MiniLM sentence embedding (`--embedding-components`, 0 for text-only). PCA is fit
+  on training folds only. `embedding_pc_examples` in the report lists the responses
+  at each end of every component so the axes can be named.
+- **Evaluation:** 5-fold cross-validated pairwise accuracy with a bootstrap 95% CI,
+  compared against a "longer response wins" baseline.
+- **Outputs:** `outputs/explain/reward_model.json`, `shap_summary.png`, and
+  `coefficients.png`.
+
+When the input records carry a `subset` (HH-RLHF does), a model is also fitted per
+subset and `subset_coefficients.png` compares their text-feature weights.
+
+| Pairs (HH-RLHF human labels) | n | CV accuracy [95% CI] | "Longer wins" |
+|---|---|---|---|
+| All, text features only | 2000 | 52.7% [50.5, 54.8] | 51.8% |
+| All, text + 8 PCs | 2000 | 56.5% [54.3, 58.7] | 51.8% |
+| `helpful-base` | 1000 | 67.2% [64.3, 70.1] | 63.0% |
+| `harmless-base` | 1000 | 62.9% [60.0, 65.8] | 40.6% |
+
+The pooled model is weak because the subsets reward opposite things: longer
+answers win and refusals lose in `helpful-base`, while shorter answers and refusals
+win in `harmless-base`. SHAP and coefficients describe this model, not causal
+effects on human preference.
+
+### Label quality: agent judges vs. human labels
+
+`scripts/07_label_agreement.py` reads the `label_agreement` judgements (each is an
+HH-RLHF human pair shown to the judges in shuffled order) and reports agreement
+with the human label with a bootstrap CI, by subset, by panel confidence
+(unanimous vs. split), per judge and round (before vs. after deliberation), and the
+rate at which judges pick the first-shown response (position bias). Output:
+`outputs/label_agreement/agreement.json`.
 
 ### What is ready and what remains
 
@@ -166,7 +199,7 @@ results on held-out data.
   without network access or API keys.
 - **Not included in the smoke test:** agent-generated responses, judge labels,
   DPO training, or win-rate results. Do not present the prompt counts or the
-  small-sample reward-model output as evidence for the research hypotheses.
+  exploratory reward-model output as evidence for the research hypotheses.
 - **Agent labeling:** requires provider API credentials in a local `.env`.
   `python scripts/02_label.py budget` prints the configured call estimate
   without making calls. The `pilot` and `run` commands make API calls and may
@@ -190,7 +223,8 @@ results on held-out data.
    counts in `data/prompts/stats.json`, and open one record in `train.jsonl`.
 5. **Status and limitations:** distinguish implemented pipeline stages from
    work not run in the demo; explain API-key and GPU requirements.
-6. **Explainability demo:** run the reward-model command and show the held-out
-   pairwise score alongside the SHAP summary plot, emphasizing the small sample.
+6. **Explainability demo:** run the reward-model command and show the
+   cross-validated accuracy and CI against the length baseline, then the SHAP and
+   coefficient plots.
 7. **Next steps:** generate and judge a larger labeled pilot, manually inspect
    the preference pairs, then run training and evaluation in a GPU environment.
