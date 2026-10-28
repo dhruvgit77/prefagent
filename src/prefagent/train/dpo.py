@@ -49,9 +49,11 @@ def run_dir(cfg: dict, condition: str, model_name: str, seed: int, n_pairs: int)
     return Path(cfg["paths"]["output_dir"]) / "runs" / f"{condition}__{short}__n{n_pairs}__s{seed}"
 
 
-def load_pairs(cfg: dict, split: str, condition: str, n: int | None, scaling: bool = False):
+def load_pairs(cfg: dict, split: str, condition: str, n: int | None, scaling: bool = False,
+               eps_max: float | None = None):
     """Pairs in TRL's conversational format, so the policy's own chat template is applied
-    exactly as at inference time."""
+    exactly as at inference time. With eps_max, each pair also carries its
+    disagreement-aware label smoothing, ε = eps_max · (1 − agreement)."""
     from datasets import Dataset
 
     suffix = ".scaling" if scaling else ""
@@ -61,11 +63,16 @@ def load_pairs(cfg: dict, split: str, condition: str, n: int | None, scaling: bo
         if len(rows) < n:
             raise ValueError(f"{path} has {len(rows)} pairs, {n} requested")
         rows = rows[:n]          # nested subsets: the first n rows, always the same ones
-    return Dataset.from_list([{
+    records = [{
         "prompt": [{"role": "user", "content": r["prompt"]}],
         "chosen": [{"role": "assistant", "content": r["chosen"]}],
         "rejected": [{"role": "assistant", "content": r["rejected"]}],
-    } for r in rows])
+    } for r in rows]
+    if eps_max is not None:
+        from prefagent.train.disagreement import COLUMN, smoothing_from_agreement
+        for rec, r in zip(records, rows):
+            rec[COLUMN] = smoothing_from_agreement(r.get("agreement"), eps_max)
+    return Dataset.from_list(records)
 
 
 def load_model(cfg: dict, model_name: str, backend: str):
@@ -108,16 +115,16 @@ def train(cfg: dict, condition: str, model_name: str, seed: int, n_pairs: int,
     cond = cfg["conditions"][condition]
     if not cond.get("train", True):
         raise ValueError(f"{condition} is not a trained condition")
-    if cond.get("dpo") == "disagreement_aware":
-        raise NotImplementedError("disagreement-aware DPO loss is not implemented yet")
+    aware = cond.get("dpo") == "disagreement_aware"
+    eps_max = cfg["dpo"]["disagreement_eps_max"] if aware else None
 
     set_seed(seed)
     out = run_dir(cfg, condition, model_name, seed, n_pairs)
     save_snapshot(cfg | {"run": {"condition": condition, "model": model_name, "seed": seed,
                                  "n_pairs": n_pairs}}, out)
-    train_ds = load_pairs(cfg, "train", condition, n_pairs, scaling)
+    train_ds = load_pairs(cfg, "train", condition, n_pairs, scaling, eps_max)
     dev_path = Path(cfg["paths"]["data_dir"]) / "pairs" / "dev" / f"{condition}.jsonl"
-    eval_ds = load_pairs(cfg, "dev", condition, None) if dev_path.exists() else None
+    eval_ds = load_pairs(cfg, "dev", condition, None, eps_max=eps_max) if dev_path.exists() else None
 
     backend = resolve_backend(cfg)
     if backend == "unsloth":
@@ -167,7 +174,10 @@ def train(cfg: dict, condition: str, model_name: str, seed: int, n_pairs: int,
         dataloader_pin_memory=dev == "cuda",
         **precision,
     )
-    trainer = DPOTrainer(model=model, args=args, train_dataset=train_ds,
+    trainer_cls = DPOTrainer
+    if aware:
+        from prefagent.train.disagreement import DisagreementAwareDPOTrainer as trainer_cls
+    trainer = trainer_cls(model=model, args=args, train_dataset=train_ds,
                          eval_dataset=eval_ds if use_eval else None,
                          processing_class=tok, peft_config=peft_config)
     resume = ck["resume_if_possible"] and any(out.glob("checkpoint-*"))

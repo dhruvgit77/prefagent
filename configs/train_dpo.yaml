@@ -45,6 +45,10 @@ dpo:
   # 0 = trust labels fully. Disagreement-aware DPO (our method) replaces this
   # constant with a per-pair value derived from judge agreement.
   label_smoothing: 0.0
+  # Disagreement-aware DPO (multi_panel_da): per-pair ε = eps_max · (1 − agreement).
+  # 0.5 means a pair the panel fully contests (agreement 0) gets a uniform target;
+  # a 2-of-3 split (agreement 0.67) gets ε ≈ 0.17. Not tuned; fixed before any run.
+  disagreement_eps_max: 0.5
   # Prompt + completion, in policy tokens. TRL ≥1.0 has a single length limit (the
   # separate prompt/completion limits were removed). data.yaml caps prompts at 256 tokens
   # and agents.yaml caps answers at 450 generator tokens, so pairs fit without truncation;

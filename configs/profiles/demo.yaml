@@ -14,6 +14,11 @@ conditions:
   base:        {train: false}
   human:       {candidates: hh_rlhf,       labels: human}
   multi_panel: {candidates: multi_persona, labels: panel}
+  # Same panel labels, disagreement-aware loss: isolates the method (RQ4).
+  multi_panel_da: {candidates: multi_persona, labels: panel, dpo: disagreement_aware}
+  # Controls built from the same candidates with no extra API calls.
+  length:      {candidates: multi_persona, labels: longer}
+  random:      {candidates: multi_persona, labels: random}
 
 data_sizes:
   # 150, not 200: the generator also holds a panel seat, so it makes 4 + 2 = 6 calls per
@@ -51,9 +56,10 @@ diagnostics:
 win_rate:
   n_prompts: 100            # first 100 of the 500 held-out eval prompts
   # Two independent jurors, neither used for labelling. Cohere's trial key allows 1,000
-  # calls/month; this evaluation uses ~600 of them.
+  # calls/month; 4 comparisons × 100 prompts × 2 orders use ~800 of them.
   jury: [gemini_lite, command]
   comparisons:
     - [human, base]
     - [multi_panel, base]
     - [multi_panel, human]
+    - [multi_panel_da, multi_panel]
