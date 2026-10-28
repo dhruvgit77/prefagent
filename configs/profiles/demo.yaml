@@ -43,8 +43,12 @@ training:
   # ~150 pairs / effective batch 8 ≈ 19 steps per epoch, ~38 in total. The full study's
   # 5e-6 with batch 16 would give ~19 tiny steps and barely move a LoRA adapter, so the
   # demo uses a higher LR. Identical for both conditions, so the comparison stays fair.
-  per_device_train_batch_size: 2
-  gradient_accumulation_steps: 4
+  # Batch 1 × 8 accumulation (same effective batch of 8). On Apple MPS, batch 2 with
+  # long agent answers padded together gave a nonsense loss (−368, −675 in two runs of
+  # the same 8 pairs; correct is ≈0.693 at step 1) and ran 15× slower under memory
+  # pressure. Batch 1 gave the correct loss in 42 s. Found 2026-10-28.
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
   learning_rate: 2.0e-5
 
 checkpointing:
