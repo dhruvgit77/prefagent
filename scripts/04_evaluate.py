@@ -3,6 +3,7 @@
     python scripts/04_evaluate.py generate --profile demo   # answers on eval prompts (GPU/MPS)
     python scripts/04_evaluate.py reward   --profile demo   # judge-free human-pref accuracy
     python scripts/04_evaluate.py winrate  --profile demo   # jury win-rates (API)
+    python scripts/04_evaluate.py benchmarks --profile demo # configured lm-eval tasks
     python scripts/04_evaluate.py report   --profile demo   # results.json + results.md
     python scripts/04_evaluate.py all      --profile demo
 
@@ -117,6 +118,40 @@ def step_winrate(cfg: dict, out: Path) -> None:
         log.info("%s vs %s: %d/%d judged", x, y, len(rows), len(resp[x]))
 
 
+def step_benchmarks(cfg: dict, out: Path) -> None:
+    from prefagent.eval.benchmarks import evaluate_halueval_qa, evaluate_task
+
+    benchmark_cfg = cfg["benchmarks"]
+    results_dir = out / "benchmarks"
+    for name, adapter in variants(cfg).items():
+        for task_name, options in benchmark_cfg["tasks"].items():
+            path = results_dir / name / f"{task_name}.json"
+            request = {
+                "model": cfg["policies"]["primary"],
+                "adapter": str(adapter) if adapter is not None else None,
+                "task": task_name,
+                "options": options,
+                "batch_size": benchmark_cfg["batch_size"],
+                "use_chat_template": cfg["eval_generation"]["use_chat_template"],
+            }
+            if path.exists():
+                cached = json.loads(path.read_text(encoding="utf-8"))
+                if cached.get("request") == request:
+                    log.info("%s / %s: cached results exist, skipping", name, task_name)
+                    continue
+
+            if task_name == "halueval_qa":
+                metrics = evaluate_halueval_qa(
+                    request["model"], adapter, options,
+                    Path(cfg["paths"]["cache_dir"]), request["batch_size"])
+            else:
+                metrics = evaluate_task(
+                    request["model"], adapter, task_name, options, request["batch_size"],
+                    request["use_chat_template"])
+            write_json(path, {"request": request, "results": metrics})
+            log.info("%s / %s: benchmark complete", name, task_name)
+
+
 def step_report(cfg: dict, out: Path) -> dict:
     report = {"profile": cfg.get("_profile"), "policy": cfg["policies"]["primary"],
               "jury": cfg["win_rate"]["jury"], "comparisons": [], "lengths": {}}
@@ -147,6 +182,16 @@ def step_report(cfg: dict, out: Path) -> dict:
                                          "mean_margin": v["mean_margin"]}
                                      for k, v in json.loads(ra.read_text())["results"].items()}
         report["reward_accuracy_n"] = json.loads(ra.read_text())["n_pairs"]
+    benchmark_dir = out / "benchmarks"
+    if benchmark_dir.exists():
+        report["benchmarks"] = {
+            variant_dir.name: {
+                result_path.stem: json.loads(result_path.read_text(encoding="utf-8"))["results"]
+                for result_path in sorted(variant_dir.glob("*.json"))
+            }
+            for variant_dir in sorted(benchmark_dir.iterdir())
+            if variant_dir.is_dir()
+        }
     write_json(out / "results.json", report)
     (out / "results.md").write_text(render_md(report))
     print(render_md(report))
@@ -177,6 +222,15 @@ def render_md(r: dict) -> str:
                   "| model | accuracy | 95% CI |", "|---|---|---|"]
         for k, v in r["reward_accuracy"].items():
             lines.append(f"| {k} | {v['accuracy']:.3f} | [{v['ci95'][0]:.3f}, {v['ci95'][1]:.3f}] |")
+    if "benchmarks" in r:
+        lines += ["", "Configured benchmark results:", "",
+                  "| model | task | metric | value |", "|---|---|---|---:|"]
+        for variant, tasks in r["benchmarks"].items():
+            for task, task_results in tasks.items():
+                for task_name, metrics in task_results.items():
+                    for metric, value in metrics.items():
+                        if isinstance(value, (int, float)):
+                            lines.append(f"| {variant} | {task_name} | {metric} | {value:.4f} |")
     lines += ["", "Mean answer length (words): "
               + ", ".join(f"{k} {v:.0f}" for k, v in r["lengths"].items())]
     return "\n".join(lines) + "\n"
@@ -185,7 +239,8 @@ def render_md(r: dict) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("step", choices=["generate", "reward", "winrate", "report", "all"])
+    ap.add_argument("step", choices=[
+        "generate", "reward", "winrate", "benchmarks", "report", "all"])
     ap.add_argument("--profile", default=None)
     ap.add_argument("--reward-pairs", type=int, default=200)
     ap.add_argument("--set", nargs="*", default=[], dest="overrides")
@@ -204,6 +259,8 @@ def main() -> None:
         step_reward(cfg, out, args.reward_pairs)
     if args.step in ("winrate", "all"):
         step_winrate(cfg, out)
+    if args.step in ("benchmarks", "all"):
+        step_benchmarks(cfg, out)
     if args.step in ("report", "all"):
         step_report(cfg, out)
 

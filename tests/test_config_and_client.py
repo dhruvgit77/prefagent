@@ -17,6 +17,16 @@ def test_juror_sharing_family_with_label_judges_is_rejected():
         load_config(overrides=["win_rate.jury=[gemini_flash,gptoss20b,command]"])
 
 
+def test_win_rate_comparisons_use_declared_conditions():
+    cfg = load_config()
+    known = set(cfg["conditions"])
+    assert all(len(comparison) == 2 and set(comparison) <= known
+               for comparison in cfg["win_rate"]["comparisons"])
+
+    with pytest.raises(ValueError, match="win-rate comparison"):
+        load_config(overrides=["win_rate.comparisons=[[missing,base]]"])
+
+
 def test_judging_must_be_compute_matched():
     with pytest.raises(ValueError, match="compute-matched"):
         load_config(overrides=["judging.single_judge.samples=3"])

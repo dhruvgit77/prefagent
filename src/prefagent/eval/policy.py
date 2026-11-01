@@ -19,7 +19,8 @@ def load_policy(model_name: str, adapter: Path | None = None):
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     dev = device_kind()
-    dtype = torch.bfloat16 if dev == "cuda" else torch.float32
+    dtype = (torch.bfloat16 if dev == "cuda" and torch.cuda.is_bf16_supported()
+             else torch.float16 if dev == "cuda" else torch.float32)
     tok = AutoTokenizer.from_pretrained(model_name)
     tok.padding_side = "left"                      # required for batched generation
     model = AutoModelForCausalLM.from_pretrained(model_name, dtype=dtype)

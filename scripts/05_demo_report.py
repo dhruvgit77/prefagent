@@ -319,6 +319,22 @@ log π(chosen)/π<sub>ref</sub>(chosen) − log π(rejected)/π<sub>ref</sub>(re
 <div class="tablewrap"><table><thead><tr><th>Model</th><th>Accuracy</th><th>95% CI</th><th>Mean margin</th></tr></thead><tbody>{rows}</tbody></table></div>
 </section>""")
 
+    benchmarks = res.get("benchmarks", {})
+    benchmark_rows = []
+    for variant, tasks in benchmarks.items():
+        for task, task_results in tasks.items():
+            for task_name, metrics in task_results.items():
+                for metric, value in metrics.items():
+                    if isinstance(value, (int, float)):
+                        benchmark_rows.append(
+                            f"<tr><td>{E(nice(variant))}</td><td>{E(task_name)}</td>"
+                            f"<td>{E(metric)}</td><td class=num>{value:.4f}</td></tr>")
+    if benchmark_rows:
+        h.append(f"""<section><span class="eyebrow">Capability benchmarks</span><h2>Standard benchmark scores</h2>
+<p>Scores come from the configured lm-evaluation-harness tasks; compare each tuned variant with the base model.</p>
+<div class="tablewrap"><table><thead><tr><th>Model</th><th>Task</th><th>Metric</th><th>Score</th></tr></thead>
+<tbody>{''.join(benchmark_rows)}</tbody></table></div></section>""")
+
     # lengths + training
     lens = res["lengths"]
     h.append(f"""<section><span class="eyebrow">Diagnostics</span><h2>Training and answer length</h2>

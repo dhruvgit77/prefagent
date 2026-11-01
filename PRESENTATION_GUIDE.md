@@ -1,8 +1,9 @@
 # Presentation guide: PrefAgent progress review
 
-What to show, what to say, and where every number comes from. Every figure in this
-guide was recomputed from the repository's own files on 22 October 2026. The
-"Where every number comes from" section says how to reproduce each one.
+What to show, what to say, and where every number comes from. The reported results
+are from a run on 22 October 2026. Generated `data/` and `outputs/` artifacts are
+not present in the current checkout, so verify those files before presenting the
+historical results as reproducible from this workspace.
 
 ---
 
@@ -22,7 +23,7 @@ the effect on a small model trained with DPO.
 ```bash
 cd multiagent
 source .venv/bin/activate            # Windows: .\.venv\Scripts\activate
-python -m pytest -q                  # expect: 63 passed
+python -m pytest -q                  # install requirements-train.txt for the full suite
 python scripts/08_build_explorer.py  # rebuilds the explorer from the data
 open outputs/explorer/index.html     # Windows: start outputs\explorer\index.html
 ```
@@ -49,8 +50,9 @@ open outputs/explorer/index.html     # Windows: start outputs\explorer\index.htm
 
 Point at the pipeline strip:
 
-> "Data preparation is done. Labelling has run as a pilot. Training and the final
-> evaluation are written but not run yet; they need GPU time."
+> "The pipeline code is implemented. This checkout has no generated datasets or
+> evaluation outputs, so I distinguish the previous pilot results from what can be
+> reproduced here. Training and the final evaluation need GPU time."
 
 Point at the funnel:
 
@@ -132,10 +134,10 @@ to *Helpfulness prompt* and the same refusal drops to P = 17.9%. Invite the audi
 
 ### Close (30 s)
 
-> "Done: data pipeline, labelling pipeline with a pilot, a label-quality check
-> against humans, and the reward-model analysis, with 63 automated tests. Next:
-> label at full scale, run DPO training on a GPU, and evaluate with an independent
-> jury of model families that never labelled any data."
+> "The data and labelling pipeline, label-quality analysis, and reward-model
+> analysis are implemented. The previous pilot produced the results shown here;
+> next, reproduce those artifacts in this checkout, label at full scale, run DPO
+> training on a GPU, and evaluate with the independent jury."
 
 ---
 
@@ -145,16 +147,17 @@ Say this plainly if asked. Do not claim more.
 
 | Part | Status | Evidence in the repo |
 |---|---|---|
-| Prompt preparation and decontamination | Done | `data/prompts/*.jsonl`, `data/prompts/stats.json` |
-| Candidate generation (4 personas) | Pilot: 22 prompts | `data/candidates/train/multi_persona.jsonl` |
-| Panel judging (3 judges × 2 rounds) | Pilot: 22 prompts → 15 pairs | `data/judgements/train/multi_persona__panel.jsonl` |
-| Preference pair files | Built (15 agent pairs, 2,000 human pairs) | `data/pairs/train/` |
-| Label agreement with humans | Pilot: 50 of 500 planned pairs | `outputs/label_agreement/agreement.json` |
-| Reward model + SHAP | Done on 2,000 human pairs | `outputs/explain/reward_model.json` and plots |
-| DPO training | **Code written, not run** (needs a GPU) | `scripts/03_train.py`; no `outputs/runs/` yet |
-| Win-rate evaluation | **Code written, not run**; base-model responses generated for 100 prompts | `scripts/04_evaluate.py`, `outputs/eval/demo/responses/base.jsonl` |
-| Disagreement-aware DPO loss | Designed (paper, Eq. 3), not yet wired into the trainer | `paper/ieee_paper.tex` |
-| Tests | 63 pass, no network or API keys needed | `python -m pytest -q` |
+| Prompt preparation and decontamination | Implemented; generated artifacts are absent from this checkout | `scripts/01_prepare_data.py` |
+| Candidate generation (4 personas) | Implemented; pilot artifacts are absent from this checkout | `src/prefagent/agents/generate.py` |
+| Panel judging (3 judges × 2 rounds) | Implemented; pilot artifacts are absent from this checkout | `src/prefagent/agents/judge.py` |
+| Preference pair files | Implemented; generated files are absent from this checkout | `scripts/02_label.py` |
+| Label agreement with humans | Implemented; generated report is absent from this checkout | `scripts/07_label_agreement.py` |
+| Reward model + SHAP | Implemented; generated report and plots are absent from this checkout | `scripts/06_explain_preferences.py` |
+| DPO training | **Implemented, not run here** (needs a GPU and generated pairs) | `scripts/03_train.py` |
+| Win-rate evaluation | **Implemented, not run here** (needs trained adapters and judge APIs) | `scripts/04_evaluate.py` |
+| Benchmark evaluation | **Wired to lm-eval and HaluEval QA, not run here** (needs training dependencies and model access) | `scripts/04_evaluate.py benchmarks` |
+| Disagreement-aware DPO loss | **Implemented, not trained/evaluated** (paper Eq. 3) | `src/prefagent/train/disagreement.py` |
+| Tests | Full suite requires the training dependencies; see current environment results | `python -m pytest -q` |
 
 ---
 
@@ -176,7 +179,7 @@ Say this plainly if asked. Do not claim more.
 | Per subset | helpful 67.2% (CI 64.3–70.1%), harmless 62.9% (CI 60.0–65.8%) | `reward_model.json` (`by_subset`) | same as above |
 | "Longer wins" on harmless prompts | 40.6% | `reward_model.json` | same |
 | Pilot pairs that were unanimous | 10 of 15 | pilot judgements file | explorer overview |
-| Tests | 63 passed | — | `python -m pytest -q` |
+| Tests | Full suite requires the training dependencies | — | `python -m pytest -q` |
 
 The reward-model results are deterministic (fixed seed). A fresh run on
 22 October 2026 reproduced `reward_model.json` exactly. The agreement numbers come

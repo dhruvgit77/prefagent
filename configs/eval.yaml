@@ -12,8 +12,9 @@ eval_generation:
 win_rate:
   prompts: eval_prompts     # the 500 held-out prompts from data.yaml
   comparisons:
-    - [dpo, base]           # does DPO improve on the untuned model? (RQ3)
-    - [agent, human]        # head-to-head: agent-label model vs human-label model
+    - [multi_panel, base]   # does the full agent pipeline improve on the base? (RQ3)
+    - [multi_panel, human]  # agent-label model vs human-label model
+    - [multi_panel_da, multi_panel]  # disagreement-aware vs standard DPO (RQ4)
   # JUDGE-INDEPENDENCE RULE (enforced in code): no eval judge may share a family with
   #   (a) the policy being evaluated (Qwen) — self-preference, or
   #   (b) any model used to generate or label the training data — the evaluated model
@@ -43,6 +44,7 @@ benchmarks:
     truthfulqa_mc2: {}             # truthfulness via log-probs — no judge needed
     gsm8k: {limit: 500}            # capability retention: did alignment hurt reasoning?
     mmlu: {limit_per_subject: 20}  # capability retention on knowledge (~1.1k questions)
+    halueval_qa: {limit: 200, seed: 1234}  # fixed, balanced hallucination-detection subset
   batch_size: auto
 
 statistics:

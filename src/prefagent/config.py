@@ -122,6 +122,15 @@ def validate(cfg: dict) -> None:
     if {"win_rate", "judging", "generation", "policies"} <= cfg.keys():
         check_judge_independence(cfg)
 
+    if "win_rate" in cfg and "conditions" in cfg:
+        known = set(cfg["conditions"])
+        for comparison in cfg["win_rate"]["comparisons"]:
+            if len(comparison) != 2 or not set(comparison) <= known:
+                raise ValueError(
+                    f"win-rate comparison {comparison!r} must reference two declared "
+                    f"conditions; known conditions are {sorted(known)}"
+                )
+
 
 def check_judge_independence(cfg: dict) -> None:
     """No eval juror may share a family with a policy or any data-generating model.
@@ -158,4 +167,3 @@ def _git_commit() -> str | None:
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return None
-
